@@ -12,3 +12,8 @@ __pycache__/
 output/
 audio/
 GAPS/
+
+# Model checkpoints & cached features
+checkpoints/
+*.pt
+*.npy
