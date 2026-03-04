@@ -12,6 +12,7 @@ __pycache__/
 output/
 audio/
 GAPS/
+GuitarSet/
 
 # Model checkpoints & cached features
 *.pt

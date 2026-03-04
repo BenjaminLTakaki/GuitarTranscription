@@ -14,84 +14,87 @@ from scipy.ndimage import median_filter
 
 from model.constants import (
     CHECKPOINT_DIR,
+    CQT_BINS_PER_OCTAVE,
+    CQT_FMIN,
+    CQT_N_BINS,
     DEFAULT_THRESHOLD,
     HOP_LENGTH,
     MIDI_MIN,
-    N_FFT,
-    N_MELS,
+    MIN_NOTE_FRAMES,
     NUM_PITCHES,
+    ONSET_THRESHOLD,
     SAMPLE_RATE,
+    SUSTAIN_THRESHOLD,
 )
 from model.network import GuitarTranscriptionModel
 
 
-def load_mel(audio_path: Path) -> np.ndarray:
-    """Load audio and return normalised log-mel spectrogram (n_mels, T)."""
+def load_cqt(audio_path: Path) -> np.ndarray:
+    """Load audio and return normalised log-CQT spectrogram (n_bins, T)."""
     y, _ = librosa.load(str(audio_path), sr=SAMPLE_RATE, mono=True)
-    mel = librosa.feature.melspectrogram(
-        y=y, sr=SAMPLE_RATE, n_fft=N_FFT,
-        hop_length=HOP_LENGTH, n_mels=N_MELS,
-        fmin=30.0, fmax=SAMPLE_RATE // 2,
-    )
-    log_mel = librosa.power_to_db(mel, ref=np.max)
-    log_mel = (log_mel - log_mel.min()) / (log_mel.max() - log_mel.min() + 1e-8)
-    return log_mel.astype(np.float32)
+    cqt = np.abs(librosa.cqt(
+        y,
+        sr=SAMPLE_RATE,
+        hop_length=HOP_LENGTH,
+        fmin=CQT_FMIN,
+        n_bins=CQT_N_BINS,
+        bins_per_octave=CQT_BINS_PER_OCTAVE,
+    ))
+    log_cqt = librosa.amplitude_to_db(cqt, ref=np.max)
+    log_cqt = (log_cqt - log_cqt.min()) / (log_cqt.max() - log_cqt.min() + 1e-8)
+    return log_cqt.astype(np.float32)
+
+
+# Backward-compatible alias so diagnose.py (and any other caller) keeps working
+load_mel = load_cqt
 
 
 def pianoroll_to_notes(
     frame_prob: np.ndarray,
     onset_prob: np.ndarray | None = None,
-    threshold: float = DEFAULT_THRESHOLD,
-    min_duration_frames: int = 2,
+    onset_threshold: float = ONSET_THRESHOLD,
+    sustain_threshold: float = SUSTAIN_THRESHOLD,
+    min_duration_frames: int = MIN_NOTE_FRAMES,
     median_filter_size: tuple[int, int] = (3, 3),
 ) -> list[dict]:
     """Convert (T, P) sigmoid outputs to note events.
 
-    Improvements over naive thresholding:
-    - Median filter on frame probs to suppress spectral bleed
-    - Relaxed onset detection (simple above-threshold, no strict local-max)
-    - Velocity estimated from mean frame probability per note
+    Uses a **Schmitt-trigger** (dual-threshold) strategy:
+    * A note begins when ``frame_prob`` exceeds ``onset_threshold``.
+    * Once active, the note sustains as long as ``frame_prob`` stays above the
+      lower ``sustain_threshold``.
+    * If ``onset_prob`` spikes again while a note is already active (onset
+      re-articulation), the current note is ended and a new one starts.
+
+    This eliminates the stuttering caused by a single threshold on decaying
+    acoustic guitar notes.
     """
     # Median filter suppresses isolated bright pixels (spectral bleed)
     filtered = median_filter(frame_prob, size=median_filter_size)
-    binary_frame = (filtered >= threshold).astype(np.int8)
-    T, P = binary_frame.shape
+    T, P = filtered.shape
     frame_sec = HOP_LENGTH / SAMPLE_RATE
-    notes = []
+    notes: list[dict] = []
 
-    # Onset threshold is slightly lower to catch more real onsets
-    onset_th = max(0.15, threshold * 0.7)
+    # Onset re-articulation threshold — a spike in onset_prob while a note is
+    # already active forces the old note to close and a new one to open.
+    onset_reattack_th = onset_threshold * 0.8
 
     for p in range(P):
         midi_note = p + MIDI_MIN
         in_note = False
         start = 0
-        for t in range(T):
-            # Relaxed onset detection: just check if above onset_th
-            # and not already at onset level in the previous frame
-            is_onset = False
-            if onset_prob is not None and onset_prob[t, p] >= onset_th:
-                prev_val = onset_prob[t - 1, p] if t > 0 else 0
-                if onset_prob[t, p] > prev_val * 1.2:  # 20% rise = new onset
-                    is_onset = True
 
-            if binary_frame[t, p]:
-                if not in_note:
-                    in_note = True
-                    start = t
-                elif in_note and is_onset:
-                    if t - start >= min_duration_frames:
-                        vel = _estimate_velocity(frame_prob[start:t, p])
-                        notes.append({
-                            "midi": midi_note,
-                            "start": start * frame_sec,
-                            "end": t * frame_sec,
-                            "velocity": vel,
-                        })
-                    start = t
-            elif in_note:
-                in_note = False
-                if t - start >= min_duration_frames:
+        for t in range(T):
+            prob = filtered[t, p]
+
+            # --- detect onset re-articulation while note is active -----------
+            if in_note and onset_prob is not None:
+                is_reattack = (
+                    onset_prob[t, p] >= onset_reattack_th
+                    and (t == 0 or onset_prob[t, p] > onset_prob[t - 1, p] * 1.2)
+                )
+                if is_reattack and (t - start) >= min_duration_frames:
+                    # close previous note, immediately open new one
                     vel = _estimate_velocity(frame_prob[start:t, p])
                     notes.append({
                         "midi": midi_note,
@@ -99,7 +102,29 @@ def pianoroll_to_notes(
                         "end": t * frame_sec,
                         "velocity": vel,
                     })
-        if in_note and T - start >= min_duration_frames:
+                    start = t  # new note starts here
+                    continue
+
+            # --- Schmitt trigger: open / sustain / close --------------------
+            if not in_note:
+                if prob >= onset_threshold:
+                    in_note = True
+                    start = t
+            else:
+                # note is active — keep it alive while above sustain floor
+                if prob < sustain_threshold:
+                    in_note = False
+                    if (t - start) >= min_duration_frames:
+                        vel = _estimate_velocity(frame_prob[start:t, p])
+                        notes.append({
+                            "midi": midi_note,
+                            "start": start * frame_sec,
+                            "end": t * frame_sec,
+                            "velocity": vel,
+                        })
+
+        # close any still-open note at end of track
+        if in_note and (T - start) >= min_duration_frames:
             vel = _estimate_velocity(frame_prob[start:T, p])
             notes.append({
                 "midi": midi_note,
@@ -153,8 +178,8 @@ def write_midi(notes: list[dict], output_path: Path, bpm: int = 120):
 @torch.no_grad()
 def predict(audio_path: Path, checkpoint_path: Path, device: torch.device):
     """Run model on full audio and return frame-level sigmoid piano-roll."""
-    mel = load_mel(audio_path)                          # (n_mels, T)
-    mel_t = torch.from_numpy(mel).unsqueeze(0).to(device)  # (1, n_mels, T)
+    mel = load_cqt(audio_path)                          # (n_bins, T)
+    mel_t = torch.from_numpy(mel).unsqueeze(0).to(device)  # (1, n_bins, T)
 
     model = GuitarTranscriptionModel().to(device)
     ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
@@ -203,7 +228,11 @@ def main():
 
     frame_prob, onset_prob = predict(args.audio_file, args.checkpoint, device)
 
-    notes = pianoroll_to_notes(frame_prob, onset_prob, threshold=args.threshold)
+    notes = pianoroll_to_notes(
+        frame_prob,
+        onset_prob,
+        onset_threshold=args.threshold,
+    )
     write_midi(notes, args.output)
 
     unique_pitches = sorted(set(n["midi"] for n in notes))

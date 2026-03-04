@@ -30,7 +30,7 @@ class ConvBlock(nn.Module):
 
 class GuitarTranscriptionModel(nn.Module):
     """
-    Mel spectrogram → frame-level piano-roll (multi-pitch) prediction.
+    CQT spectrogram → frame-level piano-roll (multi-pitch) prediction.
 
     Architecture
     ============
@@ -44,7 +44,7 @@ class GuitarTranscriptionModel(nn.Module):
 
     Input
     -----
-    mel : (B, n_mels, T)   log-mel spectrogram
+    spec : (B, n_bins, T)   log-CQT spectrogram (or any freq-axis representation)
 
     Output
     ------
@@ -103,7 +103,7 @@ class GuitarTranscriptionModel(nn.Module):
         """
         Parameters
         ----------
-        mel : (B, n_mels, T)
+        mel : (B, n_bins, T)  — log-CQT (or any freq-axis) spectrogram
 
         Returns
         -------

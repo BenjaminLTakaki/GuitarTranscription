@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train the CNN+BiGRU guitar transcription model on the GAPS dataset."""
+"""Train the CNN+BiGRU guitar transcription model on GuitarSet."""
 
 from __future__ import annotations
 
@@ -15,10 +15,11 @@ from torch.utils.data import DataLoader
 from model.constants import (
     BATCH_SIZE,
     CHECKPOINT_DIR,
+    GUITARSET_DIR,
     LEARNING_RATE,
     NUM_EPOCHS,
 )
-from model.dataset import GAPSDataset
+from model.guitarset_dataset import GuitarSetDataset
 from model.evaluate import frame_metrics
 from model.network import GuitarTranscriptionModel
 
@@ -109,8 +110,8 @@ def main():
     parser.add_argument(
         "--root",
         type=Path,
-        default=Path("."),
-        help="Project root containing the GAPS/ directory",
+        default=Path(GUITARSET_DIR),
+        help="Path to GuitarSet/ directory (containing annotation/ and audio_mono-mic/)",
     )
     parser.add_argument("--epochs", type=int, default=NUM_EPOCHS)
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
@@ -134,12 +135,16 @@ def main():
     print(f"Using device: {device}")
 
     # Datasets
-    print("Loading training set...")
-    train_ds = GAPSDataset(root=args.root, split="train", augment=True)
+    print("Loading training set (GuitarSet — players 00-03)...")
+    train_ds = GuitarSetDataset(root=args.root, split="train", augment=True)
     print(f"  {len(train_ds)} training items")
 
-    print("Loading test set...")
-    test_ds = GAPSDataset(root=args.root, split="test")
+    print("Loading validation set (GuitarSet — player 04)...")
+    val_ds = GuitarSetDataset(root=args.root, split="val")
+    print(f"  {len(val_ds)} validation items")
+
+    print("Loading test set (GuitarSet — player 05)...")
+    test_ds = GuitarSetDataset(root=args.root, split="test")
     print(f"  {len(test_ds)} test items")
 
     train_loader = DataLoader(
@@ -149,6 +154,13 @@ def main():
         num_workers=2,
         collate_fn=collate_fn,
         pin_memory=True,
+    )
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=1,
+        shuffle=False,
+        num_workers=1,
+        collate_fn=collate_fn,
     )
     test_loader = DataLoader(
         test_ds,
@@ -180,12 +192,16 @@ def main():
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     best_f1 = 0.0
 
+    # Use validation set for model selection, test set for final reporting
+    eval_loader = val_loader if len(val_ds) > 0 else test_loader
+    eval_label = "val" if len(val_ds) > 0 else "test"
+
     print(f"\nTraining for {args.epochs} epochs\n{'='*60}")
 
     for epoch in range(1, args.epochs + 1):
         t0 = time.time()
         train_stats = train_one_epoch(model, train_loader, optimizer, device, pos_weight)
-        val_stats = validate(model, test_loader, device)
+        val_stats = validate(model, eval_loader, device)
         elapsed = time.time() - t0
 
         lr = optimizer.param_groups[0]["lr"]

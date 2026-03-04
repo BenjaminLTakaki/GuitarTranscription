@@ -1,14 +1,13 @@
-"""PyTorch Dataset that pairs GAPS audio with frame-level piano-roll labels."""
+"""PyTorch Dataset for GuitarSet: pairs mono-mic audio with JAMS annotations."""
 
 from __future__ import annotations
 
-import csv
+import json
 import random
 from pathlib import Path
 from typing import List, Tuple
 
 import librosa
-import mido
 import numpy as np
 import torch
 from torch.utils.data import Dataset
@@ -17,9 +16,7 @@ from model.constants import (
     CQT_BINS_PER_OCTAVE,
     CQT_FMIN,
     CQT_N_BINS,
-    GAPS_DIR,
     HOP_LENGTH,
-    METADATA_CSV,
     MIDI_MAX,
     MIDI_MIN,
     NUM_PITCHES,
@@ -30,36 +27,32 @@ from model.constants import (
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Helpers — JAMS parsing (plain JSON, no ``jams`` library needed)
 # ---------------------------------------------------------------------------
 
-def midi_to_note_events(midi_path: str | Path) -> List[Tuple[float, float, int]]:
-    """Parse a MIDI file and return a list of (onset_sec, offset_sec, midi_note)."""
-    mid = mido.MidiFile(str(midi_path))
+def jams_to_note_events(jams_path: str | Path) -> List[Tuple[float, float, int]]:
+    """Extract (onset_sec, offset_sec, midi_note) from a GuitarSet JAMS file.
+
+    GuitarSet stores per-string ``note_midi`` annotations.  Each observation
+    has ``time`` (onset), ``duration``, and ``value`` (MIDI pitch as float).
+    We merge all six strings into a single flat list and round pitches to the
+    nearest integer.
+    """
+    with open(jams_path, "r", encoding="utf-8") as f:
+        jams = json.load(f)
+
     events: List[Tuple[float, float, int]] = []
 
-    for track in mid.tracks:
-        active: dict[int, float] = {}       # note -> onset time
-        abs_time = 0.0
-        tempo = 500_000  # default 120 bpm
-
-        for msg in track:
-            # accumulate absolute time in seconds
-            abs_time += mido.tick2second(msg.time, mid.ticks_per_beat, tempo)
-
-            if msg.type == "set_tempo":
-                tempo = msg.tempo
-
-            if msg.type == "note_on" and msg.velocity > 0:
-                active[msg.note] = abs_time
-            elif msg.type == "note_off" or (msg.type == "note_on" and msg.velocity == 0):
-                onset = active.pop(msg.note, None)
-                if onset is not None:
-                    events.append((onset, abs_time, msg.note))
-
-        # close any still-open notes
-        for note, onset in active.items():
-            events.append((onset, abs_time, note))
+    for ann in jams.get("annotations", []):
+        ns = ann.get("namespace", "")
+        if ns != "note_midi":
+            continue
+        for obs in ann.get("data", []):
+            onset = obs["time"]
+            duration = obs["duration"]
+            midi_pitch = int(round(obs["value"]))
+            offset = onset + duration
+            events.append((onset, offset, midi_pitch))
 
     return events
 
@@ -112,17 +105,37 @@ def note_events_to_onsets(
 # Dataset
 # ---------------------------------------------------------------------------
 
-class GAPSDataset(Dataset):
+# Standard player-based split used in GuitarSet literature:
+#   Train on players 00-03 (4 players, ~240 clips)
+#   Validation on player 04 (~60 clips)
+#   Test on player 05 (~60 clips)
+_SPLIT_PLAYERS = {
+    "train": {"00", "01", "02", "03"},
+    "val":   {"04"},
+    "test":  {"05"},
+}
+
+
+class GuitarSetDataset(Dataset):
     """Yields (cqt_segment, frame_roll, onset_roll) tensors for training.
 
-    During training, a random segment of ``segment_duration`` seconds is
-    extracted from each track.  During evaluation the full track is returned
-    (no cropping).
+    During training a random segment of ``segment_duration`` seconds is
+    extracted from each track.  During evaluation the full track is returned.
+
+    Expected directory layout (created by ``download_guitarset.sh``)::
+
+        GuitarSet/
+            annotation/          ← JAMS files
+               00_BN1-129-Eb_comp.jams
+               …
+            audio_mono-mic/      ← mono mic WAV files
+               00_BN1-129-Eb_comp_mic.wav
+               …
     """
 
     def __init__(
         self,
-        root: str | Path,
+        root: str | Path = "GuitarSet",
         split: str = "train",
         segment_duration: float = SEGMENT_DURATION,
         augment: bool = False,
@@ -132,33 +145,38 @@ class GAPSDataset(Dataset):
         self.segment_duration = segment_duration
         self.augment = augment and (split == "train")
 
-        # Read metadata and filter by split
+        ann_dir = self.root / "annotation"
+        audio_dir = self.root / "audio_mono-mic"
+
+        allowed_players = _SPLIT_PLAYERS.get(split)
+        if allowed_players is None:
+            raise ValueError(f"Unknown split '{split}', expected train/val/test")
+
+        # Discover pairs of (audio, jams) by scanning the annotation dir
         self.items: List[dict] = []
-        csv_path = self.root / METADATA_CSV
-        with open(csv_path, newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                row_split = row.get("split", "").strip()
-                if split == "train" and row_split == "train":
-                    self.items.append(row)
-                elif split == "val" and row_split == "":
-                    # unlabelled split → use as validation
-                    self.items.append(row)
-                elif split == "test" and row_split == "test":
-                    self.items.append(row)
+        if not ann_dir.exists():
+            print(f"WARNING: annotation dir not found: {ann_dir}")
+            return
 
-        # Pre-validate that audio + midi files exist
-        valid = []
-        for item in self.items:
-            audio_p = self.root / GAPS_DIR / item["audio_path"]
-            midi_p = self.root / GAPS_DIR / item["midi_path"]
-            if audio_p.exists() and midi_p.exists():
-                valid.append(item)
-        self.items = valid
+        for jams_path in sorted(ann_dir.glob("*.jams")):
+            player_id = jams_path.stem.split("_")[0]  # e.g. "00"
+            if player_id not in allowed_players:
+                continue
 
-    # ----- cache-friendly: compute CQT + labels per item -----
+            # Corresponding audio: same stem + "_mic.wav"
+            audio_path = audio_dir / (jams_path.stem + "_mic.wav")
+            if not audio_path.exists():
+                continue
 
-    def _load_audio_cqt(self, audio_path: Path) -> np.ndarray:
+            self.items.append({
+                "audio_path": str(audio_path),
+                "jams_path": str(jams_path),
+            })
+
+    # ----- CQT computation -----
+
+    @staticmethod
+    def _load_audio_cqt(audio_path: str | Path) -> np.ndarray:
         """Load audio and return log-CQT spectrogram (n_bins, T)."""
         y, _ = librosa.load(str(audio_path), sr=SAMPLE_RATE, mono=True)
         cqt = np.abs(librosa.cqt(
@@ -170,7 +188,6 @@ class GAPSDataset(Dataset):
             bins_per_octave=CQT_BINS_PER_OCTAVE,
         ))
         log_cqt = librosa.amplitude_to_db(cqt, ref=np.max)  # (n_bins, T)
-        # Normalise to [0, 1]
         log_cqt = (log_cqt - log_cqt.min()) / (log_cqt.max() - log_cqt.min() + 1e-8)
         return log_cqt.astype(np.float32)
 
@@ -179,15 +196,13 @@ class GAPSDataset(Dataset):
 
     def __getitem__(self, idx: int):
         item = self.items[idx]
-        audio_path = self.root / GAPS_DIR / item["audio_path"]
-        midi_path = self.root / GAPS_DIR / item["midi_path"]
 
-        # CQT spectrogram: shape (n_bins, T_full)
-        mel = self._load_audio_cqt(audio_path)
-        total_frames = mel.shape[1]
+        # CQT spectrogram → (n_bins, T_full)
+        spec = self._load_audio_cqt(item["audio_path"])
+        total_frames = spec.shape[1]
 
-        # MIDI → piano roll + onsets
-        events = midi_to_note_events(midi_path)
+        # JAMS → note events → piano-roll + onset roll
+        events = jams_to_note_events(item["jams_path"])
         frame_roll = note_events_to_pianoroll(events, total_frames)
         onset_roll = note_events_to_onsets(events, total_frames)
 
@@ -198,58 +213,58 @@ class GAPSDataset(Dataset):
                 start = random.randint(0, total_frames - seg_frames)
             else:
                 start = 0
-            mel = mel[:, start : start + seg_frames]
+            spec = spec[:, start : start + seg_frames]
             frame_roll = frame_roll[start : start + seg_frames]
             onset_roll = onset_roll[start : start + seg_frames]
 
             # Pad if shorter
-            if mel.shape[1] < seg_frames:
-                pad_w = seg_frames - mel.shape[1]
-                mel = np.pad(mel, ((0, 0), (0, pad_w)))
+            if spec.shape[1] < seg_frames:
+                pad_w = seg_frames - spec.shape[1]
+                spec = np.pad(spec, ((0, 0), (0, pad_w)))
                 frame_roll = np.pad(frame_roll, ((0, pad_w), (0, 0)))
                 onset_roll = np.pad(onset_roll, ((0, pad_w), (0, 0)))
 
-            # Apply mel-domain augmentations
+            # Apply spectrogram augmentations
             if self.augment:
-                mel = self._augment_mel(mel)
+                spec = self._augment_spec(spec)
 
         # Convert to tensors
-        mel_t = torch.from_numpy(mel)             # (n_mels, T)
-        frame_t = torch.from_numpy(frame_roll)    # (T, NUM_PITCHES)
-        onset_t = torch.from_numpy(onset_roll)    # (T, NUM_PITCHES)
+        spec_t = torch.from_numpy(spec)             # (n_bins, T)
+        frame_t = torch.from_numpy(frame_roll)      # (T, NUM_PITCHES)
+        onset_t = torch.from_numpy(onset_roll)      # (T, NUM_PITCHES)
 
-        return mel_t, frame_t, onset_t
+        return spec_t, frame_t, onset_t
 
-    # ---- Mel-domain augmentation ----
+    # ---- Spectrogram augmentation ----
 
-    def _augment_mel(self, mel: np.ndarray) -> np.ndarray:
+    @staticmethod
+    def _augment_spec(spec: np.ndarray) -> np.ndarray:
         """Apply random augmentations to log-CQT spectrogram (n_bins, T).
 
         1. Gain: scale all values by a random factor (simulates volume change)
         2. Frequency masking: zero out 1-3 random CQT bins (SpecAugment-lite)
         3. Time masking: zero out a short random time segment
         """
-        mel = mel.copy()
-        n_mels, T = mel.shape
+        spec = spec.copy()
+        n_bins, T = spec.shape
 
-        # 1. Gain augmentation (±6 dB → scale factor 0.5–2.0 in power)
-        #    Since mel is normalised [0,1], scale and re-clip
+        # 1. Gain augmentation
         if random.random() < 0.5:
             gain = random.uniform(0.7, 1.3)
-            mel = np.clip(mel * gain, 0.0, 1.0)
+            spec = np.clip(spec * gain, 0.0, 1.0)
 
-        # 2. Frequency masking: mask 1-3 contiguous mel bands
+        # 2. Frequency masking
         if random.random() < 0.5:
-            num_bands = random.randint(1, min(3, n_mels // 10))
+            num_bands = random.randint(1, min(3, n_bins // 10))
             for _ in range(num_bands):
-                width = random.randint(1, max(1, n_mels // 15))
-                start = random.randint(0, n_mels - width)
-                mel[start : start + width, :] = 0.0
+                width = random.randint(1, max(1, n_bins // 15))
+                start = random.randint(0, n_bins - width)
+                spec[start : start + width, :] = 0.0
 
-        # 3. Time masking: mask a short time segment
+        # 3. Time masking
         if random.random() < 0.5 and T > 10:
             width = random.randint(1, max(1, T // 10))
             start = random.randint(0, T - width)
-            mel[:, start : start + width] = 0.0
+            spec[:, start : start + width] = 0.0
 
-        return mel
+        return spec
