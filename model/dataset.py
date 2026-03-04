@@ -209,9 +209,47 @@ class GAPSDataset(Dataset):
                 frame_roll = np.pad(frame_roll, ((0, pad_w), (0, 0)))
                 onset_roll = np.pad(onset_roll, ((0, pad_w), (0, 0)))
 
+            # Apply mel-domain augmentations
+            if self.augment:
+                mel = self._augment_mel(mel)
+
         # Convert to tensors
         mel_t = torch.from_numpy(mel)             # (n_mels, T)
         frame_t = torch.from_numpy(frame_roll)    # (T, NUM_PITCHES)
         onset_t = torch.from_numpy(onset_roll)    # (T, NUM_PITCHES)
 
         return mel_t, frame_t, onset_t
+
+    # ---- Mel-domain augmentation ----
+
+    def _augment_mel(self, mel: np.ndarray) -> np.ndarray:
+        """Apply random augmentations to log-mel spectrogram (n_mels, T).
+
+        1. Gain: scale all values by a random factor (simulates volume change)
+        2. Frequency masking: zero out 1-3 random mel bands (SpecAugment-lite)
+        3. Time masking: zero out a short random time segment
+        """
+        mel = mel.copy()
+        n_mels, T = mel.shape
+
+        # 1. Gain augmentation (±6 dB → scale factor 0.5–2.0 in power)
+        #    Since mel is normalised [0,1], scale and re-clip
+        if random.random() < 0.5:
+            gain = random.uniform(0.7, 1.3)
+            mel = np.clip(mel * gain, 0.0, 1.0)
+
+        # 2. Frequency masking: mask 1-3 contiguous mel bands
+        if random.random() < 0.5:
+            num_bands = random.randint(1, min(3, n_mels // 10))
+            for _ in range(num_bands):
+                width = random.randint(1, max(1, n_mels // 15))
+                start = random.randint(0, n_mels - width)
+                mel[start : start + width, :] = 0.0
+
+        # 3. Time masking: mask a short time segment
+        if random.random() < 0.5 and T > 10:
+            width = random.randint(1, max(1, T // 10))
+            start = random.randint(0, T - width)
+            mel[:, start : start + width] = 0.0
+
+        return mel

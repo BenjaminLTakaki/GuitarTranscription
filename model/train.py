@@ -58,7 +58,7 @@ def train_one_epoch(
 
         loss_frame = frame_criterion(frame_logits, frame_target)
         loss_onset = onset_criterion(onset_logits, onset_target)
-        loss = loss_frame + 0.5 * loss_onset
+        loss = loss_frame + 1.0 * loss_onset
 
         optimizer.zero_grad()
         loss.backward()
@@ -117,6 +117,11 @@ def main():
     parser.add_argument("--lr", type=float, default=LEARNING_RATE)
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument(
+        "--scheduler", type=str, default="plateau",
+        choices=["plateau", "cosine"],
+        help="LR scheduler: 'plateau' (ReduceLROnPlateau) or 'cosine' (CosineAnnealingLR)",
+    )
+    parser.add_argument(
         "--checkpoint-dir", type=Path, default=Path(CHECKPOINT_DIR)
     )
     args = parser.parse_args()
@@ -162,9 +167,14 @@ def main():
     pos_weight = torch.tensor([5.0]).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="max", factor=0.5, patience=5,
-    )
+    if args.scheduler == "cosine":
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=args.epochs, eta_min=1e-6,
+        )
+    else:
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="max", factor=0.5, patience=5,
+        )
 
     # Checkpointing
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -187,7 +197,10 @@ def main():
             f"lr {lr:.2e} | {elapsed:.1f}s"
         )
 
-        scheduler.step(val_stats["f1"])
+        if args.scheduler == "cosine":
+            scheduler.step()
+        else:
+            scheduler.step(val_stats["f1"])
 
         # Save best
         if val_stats["f1"] > best_f1:

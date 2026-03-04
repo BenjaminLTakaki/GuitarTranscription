@@ -18,6 +18,7 @@ BATCH_SIZE = 16
 LEARNING_RATE = 6e-4
 NUM_EPOCHS = 50
 ONSET_TOLERANCE = 0.05     # 50 ms for evaluation
+DEFAULT_THRESHOLD = 0.35   # tuned via diagnose.py sweep
 
 # Paths (relative to project root)
 GAPS_DIR = "GAPS"

@@ -10,9 +10,11 @@ import librosa
 import mido
 import numpy as np
 import torch
+from scipy.ndimage import median_filter
 
 from model.constants import (
     CHECKPOINT_DIR,
+    DEFAULT_THRESHOLD,
     HOP_LENGTH,
     MIDI_MIN,
     N_FFT,
@@ -37,41 +39,83 @@ def load_mel(audio_path: Path) -> np.ndarray:
 
 
 def pianoroll_to_notes(
-    roll: np.ndarray,
-    threshold: float = 0.5,
+    frame_prob: np.ndarray,
+    onset_prob: np.ndarray | None = None,
+    threshold: float = DEFAULT_THRESHOLD,
     min_duration_frames: int = 2,
+    median_filter_size: tuple[int, int] = (3, 3),
 ) -> list[dict]:
-    """Convert (T, P) sigmoid outputs to note events."""
-    binary = (roll >= threshold).astype(np.int8)
-    T, P = binary.shape
+    """Convert (T, P) sigmoid outputs to note events.
+
+    Improvements over naive thresholding:
+    - Median filter on frame probs to suppress spectral bleed
+    - Relaxed onset detection (simple above-threshold, no strict local-max)
+    - Velocity estimated from mean frame probability per note
+    """
+    # Median filter suppresses isolated bright pixels (spectral bleed)
+    filtered = median_filter(frame_prob, size=median_filter_size)
+    binary_frame = (filtered >= threshold).astype(np.int8)
+    T, P = binary_frame.shape
     frame_sec = HOP_LENGTH / SAMPLE_RATE
     notes = []
+
+    # Onset threshold is slightly lower to catch more real onsets
+    onset_th = max(0.15, threshold * 0.7)
 
     for p in range(P):
         midi_note = p + MIDI_MIN
         in_note = False
         start = 0
         for t in range(T):
-            if binary[t, p] and not in_note:
-                in_note = True
-                start = t
-            elif not binary[t, p] and in_note:
+            # Relaxed onset detection: just check if above onset_th
+            # and not already at onset level in the previous frame
+            is_onset = False
+            if onset_prob is not None and onset_prob[t, p] >= onset_th:
+                prev_val = onset_prob[t - 1, p] if t > 0 else 0
+                if onset_prob[t, p] > prev_val * 1.2:  # 20% rise = new onset
+                    is_onset = True
+
+            if binary_frame[t, p]:
+                if not in_note:
+                    in_note = True
+                    start = t
+                elif in_note and is_onset:
+                    if t - start >= min_duration_frames:
+                        vel = _estimate_velocity(frame_prob[start:t, p])
+                        notes.append({
+                            "midi": midi_note,
+                            "start": start * frame_sec,
+                            "end": t * frame_sec,
+                            "velocity": vel,
+                        })
+                    start = t
+            elif in_note:
                 in_note = False
                 if t - start >= min_duration_frames:
+                    vel = _estimate_velocity(frame_prob[start:t, p])
                     notes.append({
                         "midi": midi_note,
                         "start": start * frame_sec,
                         "end": t * frame_sec,
+                        "velocity": vel,
                     })
         if in_note and T - start >= min_duration_frames:
+            vel = _estimate_velocity(frame_prob[start:T, p])
             notes.append({
                 "midi": midi_note,
                 "start": start * frame_sec,
                 "end": T * frame_sec,
+                "velocity": vel,
             })
 
     notes.sort(key=lambda n: n["start"])
     return notes
+
+
+def _estimate_velocity(probs: np.ndarray, lo: int = 40, hi: int = 110) -> int:
+    """Map mean frame probability to a MIDI velocity in [lo, hi]."""
+    mean_p = float(np.mean(probs))
+    return int(np.clip(lo + (hi - lo) * mean_p, lo, hi))
 
 
 def write_midi(notes: list[dict], output_path: Path, bpm: int = 120):
@@ -88,16 +132,17 @@ def write_midi(notes: list[dict], output_path: Path, bpm: int = 120):
     # Flatten note_on / note_off and sort by time
     events = []
     for n in notes:
-        events.append(("on", n["start"], n["midi"]))
-        events.append(("off", n["end"], n["midi"]))
+        vel = n.get("velocity", 80)
+        events.append(("on", n["start"], n["midi"], vel))
+        events.append(("off", n["end"], n["midi"], vel))
     events.sort(key=lambda e: e[1])
 
     current_tick = 0
-    for kind, time_sec, midi_note in events:
+    for kind, time_sec, midi_note, velocity in events:
         abs_tick = int(round(mido.second2tick(time_sec, midi_file.ticks_per_beat, tempo)))
         delta = max(0, abs_tick - current_tick)
         if kind == "on":
-            track.append(mido.Message("note_on", note=midi_note, velocity=80, time=delta))
+            track.append(mido.Message("note_on", note=midi_note, velocity=velocity, time=delta))
         else:
             track.append(mido.Message("note_off", note=midi_note, velocity=0, time=delta))
         current_tick = abs_tick
@@ -137,7 +182,7 @@ def main():
         default=Path(CHECKPOINT_DIR) / "best_model.pt",
         help="Path to model checkpoint",
     )
-    parser.add_argument("--threshold", type=float, default=0.5)
+    parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
     parser.add_argument("--device", type=str, default="auto")
     args = parser.parse_args()
 
@@ -158,7 +203,7 @@ def main():
 
     frame_prob, onset_prob = predict(args.audio_file, args.checkpoint, device)
 
-    notes = pianoroll_to_notes(frame_prob, threshold=args.threshold)
+    notes = pianoroll_to_notes(frame_prob, onset_prob, threshold=args.threshold)
     write_midi(notes, args.output)
 
     unique_pitches = sorted(set(n["midi"] for n in notes))

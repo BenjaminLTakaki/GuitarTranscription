@@ -89,12 +89,20 @@ class GuitarTranscriptionModel(nn.Module):
 
         rnn_out_dim = rnn_hidden * 2  # bidirectional
 
-        # Output heads
-        self.frame_head = nn.Sequential(
-            nn.Linear(rnn_out_dim, num_pitches),
-        )
+        # Output heads — deeper than single Linear
+        head_hidden = rnn_out_dim // 2
         self.onset_head = nn.Sequential(
-            nn.Linear(rnn_out_dim, num_pitches),
+            nn.Linear(rnn_out_dim, head_hidden),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+            nn.Linear(head_hidden, num_pitches),
+        )
+        # Frame head takes RNN output + onset probabilities (Onsets & Frames)
+        self.frame_head = nn.Sequential(
+            nn.Linear(rnn_out_dim + num_pitches, head_hidden),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+            nn.Linear(head_hidden, num_pitches),
         )
 
         self.dropout = nn.Dropout(dropout)
@@ -124,7 +132,12 @@ class GuitarTranscriptionModel(nn.Module):
         x, _ = self.rnn(x)                           # (B, T, rnn_hidden*2)
         x = self.dropout(x)
 
-        frame_logits = self.frame_head(x)            # (B, T, num_pitches)
+        # Onset head first — its output feeds into the frame head
         onset_logits = self.onset_head(x)            # (B, T, num_pitches)
+        onset_probs = torch.sigmoid(onset_logits)
+
+        # Frame head receives RNN output + onset probabilities
+        frame_input = torch.cat([x, onset_probs], dim=-1)  # (B, T, rnn_out+P)
+        frame_logits = self.frame_head(frame_input)  # (B, T, num_pitches)
 
         return frame_logits, onset_logits

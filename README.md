@@ -29,8 +29,10 @@ with aligned audio and MIDI).
 | Input | 229-bin log-mel spectrogram (22 050 Hz, hop 512) |
 | Encoder | 3 × ConvBlock (32→64→128 channels, freq-axis pooling) |
 | Sequence | 2-layer bidirectional GRU (256 hidden) |
-| Heads | Frame head + Onset head (49 pitches, E2–E6) |
-| Loss | BCE with logits, positive-class weighting |
+| Heads | Frame head + Onset head (49 pitches, E2–E6), each with hidden layer |
+| Connection | Onset→Frame (onset sigmoid concatenated into frame head input) |
+| Augmentation | Gain, frequency masking, time masking (SpecAugment-lite) |
+| Loss | BCE with logits, positive-class weighting, onset weight = 1.0 |
 
 ### Setup
 
@@ -62,6 +64,8 @@ GuitarTranscription/
 
 ```bash
 python -m model.train --epochs 50 --batch-size 16 --lr 6e-4
+# Optional: use cosine annealing scheduler
+python -m model.train --epochs 50 --batch-size 16 --lr 6e-4 --scheduler cosine
 ```
 
 Checkpoints are saved to `checkpoints/`. The best model (by test F1) is
