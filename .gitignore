@@ -15,7 +15,9 @@ GAPS/
 GuitarSet/
 checkpoints/
 SyntheticGuitar_SF2/
+SyntheticGuitar/
 
-# Model checkpoints & cached features
-*.pt
+# Model checkpoints & cached features — track best_model.pt explicitly via git
 *.npy
+# Ignore epoch checkpoints but keep best
+checkpoint_epoch*.pt
