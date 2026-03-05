@@ -77,17 +77,37 @@ python -m model.train --resume checkpoints/best_model.pt --epochs 150 --lr 6e-4
 
 #### Synthetic data pretraining
 
-Generate synthetic guitar audio (Karplus-Strong synthesis) to augment the
-small GuitarSet dataset, then pretrain + fine-tune:
+Generate synthetic guitar audio to augment the small GuitarSet dataset.
+Two generators are available:
 
+| Script | Method | Quality | Dependencies |
+|--------|--------|---------|--------------|
+| `generate_synthetic.py` | Karplus-Strong physical model | Good (no install needed) | none |
+| `generate_sf2.py` | FluidSynth + SF2 real samples | Better (realistic timbre) | `sudo apt install fluidsynth` |
+
+**Option A — Karplus-Strong (no setup needed):**
 ```bash
-# 1. Generate synthetic data (e.g. 500 tracks × 30 seconds ≈ 4 hours)
 python generate_synthetic.py --num-tracks 500 --duration 30
+```
 
-# 2. Pretrain on synthetic data
-python -m model.train --synth-root SyntheticGuitar --epochs 50 --lr 6e-4
+**Option B — SoundFont rendering (more realistic, recommended):**
+```bash
+# One-time setup from a real (non-VS Code) terminal:
+sudo apt install fluidsynth
 
-# 3. Fine-tune on real GuitarSet data
+# Then generate:
+python generate_sf2.py --num-tracks 500 --duration 30
+```
+
+Both generators output `SyntheticGuitar*/annotation/*.jams` + `audio_mono-mic/*.wav`
+in GuitarSet-compatible format.
+
+**Pretrain + fine-tune workflow:**
+```bash
+# 1. Pretrain on synthetic (val F1 will be modest; that's expected)
+python -m model.train --synth-root SyntheticGuitar_SF2 --epochs 50 --lr 6e-4
+
+# 2. Fine-tune on real GuitarSet — F1 should climb faster than training from scratch
 python -m model.train --resume checkpoints/best_model.pt --epochs 100 --lr 2e-4
 ```
 
@@ -104,7 +124,8 @@ python -m model.predict path/to/guitar.wav -o output/transcription_ml.mid
 
 ```
 detect_pitches.py           ← Iteration 1 (rule-based)
-generate_synthetic.py       ← Synthetic guitar data generator (Karplus-Strong)
+generate_synthetic.py       ← Synthetic data generator (Karplus-Strong, no deps)
+generate_sf2.py             ← Synthetic data generator (FluidSynth SF2, more realistic)
 download_guitarset.sh       ← Downloads GuitarSet from Zenodo
 model/
   constants.py              ← Shared hyperparameters

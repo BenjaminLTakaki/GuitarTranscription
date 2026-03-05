@@ -14,7 +14,7 @@ audio/
 GAPS/
 GuitarSet/
 checkpoints/
-SyntheticGuitar/
+SyntheticGuitar_SF2/
 
 # Model checkpoints & cached features
 *.pt
