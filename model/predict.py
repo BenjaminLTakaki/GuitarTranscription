@@ -18,13 +18,13 @@ from model.constants import (
     CQT_FMIN,
     CQT_N_BINS,
     DEFAULT_THRESHOLD,
+    GUITAR_TUNING,
     HOP_LENGTH,
-    MIDI_MIN,
     MIN_NOTE_FRAMES,
-    NUM_PITCHES,
     ONSET_THRESHOLD,
     SAMPLE_RATE,
     SUSTAIN_THRESHOLD,
+    class_to_string_fret,
 )
 from model.network import GuitarTranscriptionModel
 
@@ -80,7 +80,8 @@ def pianoroll_to_notes(
     onset_reattack_th = onset_threshold * 0.8
 
     for p in range(P):
-        midi_note = p + MIDI_MIN
+        string, fret = class_to_string_fret(p)
+        midi_note = GUITAR_TUNING[string] + fret
         in_note = False
         start = 0
 
@@ -98,6 +99,8 @@ def pianoroll_to_notes(
                     vel = _estimate_velocity(frame_prob[start:t, p])
                     notes.append({
                         "midi": midi_note,
+                        "string": string,
+                        "fret": fret,
                         "start": start * frame_sec,
                         "end": t * frame_sec,
                         "velocity": vel,
@@ -118,6 +121,8 @@ def pianoroll_to_notes(
                         vel = _estimate_velocity(frame_prob[start:t, p])
                         notes.append({
                             "midi": midi_note,
+                            "string": string,
+                            "fret": fret,
                             "start": start * frame_sec,
                             "end": t * frame_sec,
                             "velocity": vel,
@@ -128,6 +133,8 @@ def pianoroll_to_notes(
             vel = _estimate_velocity(frame_prob[start:T, p])
             notes.append({
                 "midi": midi_note,
+                "string": string,
+                "fret": fret,
                 "start": start * frame_sec,
                 "end": T * frame_sec,
                 "velocity": vel,
@@ -236,7 +243,9 @@ def main():
     write_midi(notes, args.output)
 
     unique_pitches = sorted(set(n["midi"] for n in notes))
-    print(f"Detected {len(notes)} notes across {len(unique_pitches)} unique pitches")
+    unique_positions = sorted(set((n["string"], n["fret"]) for n in notes))
+    print(f"Detected {len(notes)} notes across {len(unique_pitches)} unique pitches, "
+          f"{len(unique_positions)} unique (string, fret) positions")
     print(f"Saved MIDI → {args.output}")
 
 

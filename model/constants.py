@@ -1,5 +1,7 @@
 """Shared constants for the guitar transcription model."""
 
+from __future__ import annotations
+
 import librosa as _librosa
 
 # Audio parameters
@@ -17,7 +19,16 @@ N_MELS = CQT_N_BINS       # frequency-axis size fed to CNN (was 229 for mel)
 # MIDI / pitch range — standard guitar: E2 (40) to E6 (88)
 MIDI_MIN = 40
 MIDI_MAX = 88
-NUM_PITCHES = MIDI_MAX - MIDI_MIN + 1  # 49
+NUM_PITCHES = MIDI_MAX - MIDI_MIN + 1  # 49 (kept for GAPS dataset compatibility)
+
+# Tablature / string+fret encoding — for GuitarSet (per-string annotations)
+NUM_STRINGS = 6
+NUM_FRETS = 21                             # frets 0-20 inclusive
+NUM_CLASSES = NUM_STRINGS * NUM_FRETS      # 126
+
+# Standard tuning: MIDI base note for each open string (fret 0)
+# String 0 = low E (MIDI 40), ..., String 5 = high e (MIDI 64)
+GUITAR_TUNING = (40, 45, 50, 55, 59, 64)
 
 # Training defaults
 SEGMENT_DURATION = 5.0     # seconds per training clip
@@ -42,3 +53,31 @@ GAPS_DIR = "GAPS"
 METADATA_CSV = "GAPS/gaps_metadata_with_splits.csv"
 GUITARSET_DIR = "GuitarSet"
 CHECKPOINT_DIR = "checkpoints"
+
+
+# ---------------------------------------------------------------------------
+# Tablature ↔ MIDI conversion helpers
+# ---------------------------------------------------------------------------
+
+def string_fret_to_class(string: int, fret: int) -> int:
+    """Convert (string_index, fret_number) to flat class index [0, 125]."""
+    return string * NUM_FRETS + fret
+
+
+def class_to_string_fret(class_idx: int) -> tuple[int, int]:
+    """Convert flat class index [0, 125] to (string_index, fret_number)."""
+    return class_idx // NUM_FRETS, class_idx % NUM_FRETS
+
+
+def class_to_midi(class_idx: int) -> int:
+    """Convert flat class index [0, 125] to MIDI pitch."""
+    string, fret = class_to_string_fret(class_idx)
+    return GUITAR_TUNING[string] + fret
+
+
+def midi_string_to_class(midi_pitch: int, string: int) -> int | None:
+    """Convert (midi_pitch, string_index) to class index, or None if fret out of range."""
+    fret = midi_pitch - GUITAR_TUNING[string]
+    if 0 <= fret < NUM_FRETS:
+        return string_fret_to_class(string, fret)
+    return None

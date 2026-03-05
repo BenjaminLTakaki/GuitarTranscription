@@ -16,13 +16,15 @@ from model.constants import (
     CQT_BINS_PER_OCTAVE,
     CQT_FMIN,
     CQT_N_BINS,
+    GUITAR_TUNING,
     HOP_LENGTH,
-    MIDI_MAX,
-    MIDI_MIN,
-    NUM_PITCHES,
+    NUM_CLASSES,
+    NUM_FRETS,
+    NUM_STRINGS,
     SAMPLE_RATE,
     SEGMENT_DURATION,
     SEGMENT_FRAMES,
+    midi_string_to_class,
 )
 
 
@@ -30,73 +32,86 @@ from model.constants import (
 # Helpers — JAMS parsing (plain JSON, no ``jams`` library needed)
 # ---------------------------------------------------------------------------
 
-def jams_to_note_events(jams_path: str | Path) -> List[Tuple[float, float, int]]:
-    """Extract (onset_sec, offset_sec, midi_note) from a GuitarSet JAMS file.
+def jams_to_tab_events(jams_path: str | Path) -> List[Tuple[float, float, int]]:
+    """Extract (onset_sec, offset_sec, class_idx) from a GuitarSet JAMS file.
 
-    GuitarSet stores per-string ``note_midi`` annotations.  Each observation
-    has ``time`` (onset), ``duration``, and ``value`` (MIDI pitch as float).
-    We merge all six strings into a single flat list and round pitches to the
-    nearest integer.
+    GuitarSet stores per-string ``note_midi`` annotations.  The *i*-th
+    ``note_midi`` annotation corresponds to string *i* (0 = low E, 5 = high e).
+    We convert each note to a tablature class index:
+        class_idx = string_index * NUM_FRETS + fret_number
+    where fret_number = midi_pitch - GUITAR_TUNING[string_index].
+
+    Notes that fall outside frets 0-20 are silently skipped.
     """
     with open(jams_path, "r", encoding="utf-8") as f:
         jams = json.load(f)
 
     events: List[Tuple[float, float, int]] = []
+    string_idx = 0
 
     for ann in jams.get("annotations", []):
         ns = ann.get("namespace", "")
         if ns != "note_midi":
             continue
+        if string_idx >= NUM_STRINGS:
+            break
+
         for obs in ann.get("data", []):
             onset = obs["time"]
             duration = obs["duration"]
             midi_pitch = int(round(obs["value"]))
             offset = onset + duration
-            events.append((onset, offset, midi_pitch))
+
+            class_idx = midi_string_to_class(midi_pitch, string_idx)
+            if class_idx is None:
+                continue
+            events.append((onset, offset, class_idx))
+
+        string_idx += 1
 
     return events
 
 
-def note_events_to_pianoroll(
+def tab_events_to_roll(
     events: List[Tuple[float, float, int]],
     num_frames: int,
+    num_classes: int = NUM_CLASSES,
     hop_length: int = HOP_LENGTH,
     sr: int = SAMPLE_RATE,
 ) -> np.ndarray:
-    """Convert note events to a (num_frames, NUM_PITCHES) binary piano-roll."""
-    roll = np.zeros((num_frames, NUM_PITCHES), dtype=np.float32)
+    """Convert tab events to a (num_frames, NUM_CLASSES) binary frame roll."""
+    roll = np.zeros((num_frames, num_classes), dtype=np.float32)
     frame_dur = hop_length / sr
 
-    for onset, offset, note in events:
-        if note < MIDI_MIN or note > MIDI_MAX:
+    for onset, offset, class_idx in events:
+        if class_idx < 0 or class_idx >= num_classes:
             continue
-        pitch_idx = note - MIDI_MIN
         start_frame = int(round(onset / frame_dur))
         end_frame = int(round(offset / frame_dur))
         start_frame = max(0, min(start_frame, num_frames - 1))
         end_frame = max(start_frame + 1, min(end_frame, num_frames))
-        roll[start_frame:end_frame, pitch_idx] = 1.0
+        roll[start_frame:end_frame, class_idx] = 1.0
 
     return roll
 
 
-def note_events_to_onsets(
+def tab_events_to_onsets(
     events: List[Tuple[float, float, int]],
     num_frames: int,
+    num_classes: int = NUM_CLASSES,
     hop_length: int = HOP_LENGTH,
     sr: int = SAMPLE_RATE,
 ) -> np.ndarray:
-    """Onset-only piano-roll (single-frame impulse at each note onset)."""
-    roll = np.zeros((num_frames, NUM_PITCHES), dtype=np.float32)
+    """Onset-only roll (single-frame impulse at each event onset)."""
+    roll = np.zeros((num_frames, num_classes), dtype=np.float32)
     frame_dur = hop_length / sr
 
-    for onset, _offset, note in events:
-        if note < MIDI_MIN or note > MIDI_MAX:
+    for onset, _offset, class_idx in events:
+        if class_idx < 0 or class_idx >= num_classes:
             continue
-        pitch_idx = note - MIDI_MIN
         frame = int(round(onset / frame_dur))
         if 0 <= frame < num_frames:
-            roll[frame, pitch_idx] = 1.0
+            roll[frame, class_idx] = 1.0
 
     return roll
 
@@ -201,10 +216,10 @@ class GuitarSetDataset(Dataset):
         spec = self._load_audio_cqt(item["audio_path"])
         total_frames = spec.shape[1]
 
-        # JAMS → note events → piano-roll + onset roll
-        events = jams_to_note_events(item["jams_path"])
-        frame_roll = note_events_to_pianoroll(events, total_frames)
-        onset_roll = note_events_to_onsets(events, total_frames)
+        # JAMS → tablature events → frame roll + onset roll
+        events = jams_to_tab_events(item["jams_path"])
+        frame_roll = tab_events_to_roll(events, total_frames)
+        onset_roll = tab_events_to_onsets(events, total_frames)
 
         # Crop or pad to fixed segment length during training
         if self.split == "train":
@@ -230,8 +245,8 @@ class GuitarSetDataset(Dataset):
 
         # Convert to tensors
         spec_t = torch.from_numpy(spec)             # (n_bins, T)
-        frame_t = torch.from_numpy(frame_roll)      # (T, NUM_PITCHES)
-        onset_t = torch.from_numpy(onset_roll)      # (T, NUM_PITCHES)
+        frame_t = torch.from_numpy(frame_roll)      # (T, NUM_CLASSES)
+        onset_t = torch.from_numpy(onset_roll)      # (T, NUM_CLASSES)
 
         return spec_t, frame_t, onset_t
 

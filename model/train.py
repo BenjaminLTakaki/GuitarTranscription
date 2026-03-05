@@ -176,7 +176,8 @@ def main():
     print(f"Model parameters: {total_params:,}")
 
     # Positive-class weighting (notes are sparse → weight them higher)
-    pos_weight = torch.tensor([5.0]).to(device)
+    # With 126 tablature classes (vs 49 pitches), targets are ~2.6× sparser.
+    pos_weight = torch.tensor([10.0]).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     if args.scheduler == "cosine":

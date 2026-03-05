@@ -27,9 +27,9 @@ import torch
 from model.constants import (
     CHECKPOINT_DIR,
     HOP_LENGTH,
-    MIDI_MIN,
-    MIDI_MAX,
-    NUM_PITCHES,
+    NUM_CLASSES,
+    NUM_FRETS,
+    NUM_STRINGS,
     SAMPLE_RATE,
 )
 from model.network import GuitarTranscriptionModel
@@ -57,10 +57,11 @@ def plot_pianoroll_heatmap(
     cbar = fig.colorbar(im, ax=ax, pad=0.01)
     cbar.set_label("Sigmoid probability")
 
-    # Y-axis: MIDI pitch labels every 6 semitones
-    pitch_ticks = list(range(0, NUM_PITCHES, 6))
-    ax.set_yticks(pitch_ticks)
-    ax.set_yticklabels([f"MIDI {p + MIDI_MIN}" for p in pitch_ticks])
+    # Y-axis: label each string boundary
+    _STRING_NAMES = ["E2", "A2", "D3", "G3", "B3", "e4"]
+    string_ticks = [s * NUM_FRETS for s in range(NUM_STRINGS)]
+    ax.set_yticks(string_ticks)
+    ax.set_yticklabels([f"S{s} ({_STRING_NAMES[s]}) f0" for s in range(NUM_STRINGS)])
 
     # X-axis: time in seconds
     frame_sec = HOP_LENGTH / SAMPLE_RATE
@@ -96,9 +97,10 @@ def sweep_thresholds(
     midi_dir.mkdir(parents=True, exist_ok=True)
 
     for th in thresholds:
-        notes = pianoroll_to_notes(frame_prob, onset_prob, threshold=th)
+        notes = pianoroll_to_notes(frame_prob, onset_prob, onset_threshold=th)
         n_notes = len(notes)
         unique_pitches = sorted(set(n["midi"] for n in notes)) if notes else []
+        unique_positions = sorted(set((n["string"], n["fret"]) for n in notes)) if notes else []
         total_dur = sum(n["end"] - n["start"] for n in notes) if notes else 0.0
         avg_dur = total_dur / n_notes if n_notes else 0.0
 
@@ -106,6 +108,7 @@ def sweep_thresholds(
             "threshold": th,
             "n_notes": n_notes,
             "n_unique_pitches": len(unique_pitches),
+            "n_unique_positions": len(unique_positions),
             "avg_duration_s": avg_dur,
             "pitch_range": f"{min(unique_pitches)}-{max(unique_pitches)}" if unique_pitches else "—",
         })
@@ -115,11 +118,12 @@ def sweep_thresholds(
         write_midi(notes, midi_path)
 
     # ── Table ──
-    header = f"{'Thresh':>7} {'Notes':>6} {'Pitches':>8} {'AvgDur':>8} {'Range':>10}"
+    header = f"{'Thresh':>7} {'Notes':>6} {'Pitches':>8} {'Positions':>10} {'AvgDur':>8} {'Range':>10}"
     lines = [header, "-" * len(header)]
     for r in results:
         lines.append(
             f"{r['threshold']:7.2f} {r['n_notes']:6d} {r['n_unique_pitches']:8d} "
+            f"{r['n_unique_positions']:10d} "
             f"{r['avg_duration_s']:8.3f} {r['pitch_range']:>10}"
         )
     table_txt = "\n".join(lines)
@@ -235,7 +239,7 @@ def main():
     onset_prob = torch.sigmoid(onset_logits).squeeze(0).cpu().numpy()
 
     duration_sec = mel.shape[1] * HOP_LENGTH / SAMPLE_RATE
-    print(f"Audio duration: {duration_sec:.1f}s | Frames: {frame_prob.shape[0]} | Pitches: {frame_prob.shape[1]}")
+    print(f"Audio duration: {duration_sec:.1f}s | Frames: {frame_prob.shape[0]} | Classes: {frame_prob.shape[1]}")
 
     # ── Quick stats ──
     print(f"\nFrame probs — max: {frame_prob.max():.4f}, mean: {frame_prob.mean():.4f}, "
