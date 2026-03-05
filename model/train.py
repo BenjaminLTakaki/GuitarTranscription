@@ -81,9 +81,12 @@ def train_one_epoch(
 @torch.no_grad()
 def validate(
     model: nn.Module,
-    loader: DataLoader,
+    loader: DataLoader | None,
     device: torch.device,
 ) -> dict[str, float]:
+    if loader is None or len(loader.dataset) == 0:
+        return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
+
     model.eval()
     all_preds: list[np.ndarray] = []
     all_targets: list[np.ndarray] = []
@@ -97,6 +100,9 @@ def validate(
         for i in range(pred.shape[0]):
             all_preds.append(pred[i])
             all_targets.append(target[i])
+
+    if not all_preds:
+        return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
 
     # Concatenate across all samples (frame-level)
     preds = np.concatenate(all_preds, axis=0)
@@ -222,8 +228,15 @@ def main():
         print(f"  Loaded epoch {ckpt.get('epoch', '?')}, F1={best_f1:.4f}")
 
     # Use validation set for model selection, test set for final reporting
-    eval_loader = val_loader if len(val_ds) > 0 else test_loader
-    eval_label = "val" if len(val_ds) > 0 else "test"
+    if len(val_ds) > 0:
+        eval_loader: DataLoader | None = val_loader
+        eval_label = "val"
+    elif len(test_ds) > 0:
+        eval_loader = test_loader
+        eval_label = "test"
+    else:
+        eval_loader = None
+        eval_label = "none"
 
     print(f"\nTraining for epochs {start_epoch}–{args.epochs}\n{'='*60}")
 
@@ -234,11 +247,15 @@ def main():
         elapsed = time.time() - t0
 
         lr = optimizer.param_groups[0]["lr"]
+        val_str = (
+            f"P {val_stats['precision']:.3f}  R {val_stats['recall']:.3f}  F1 {val_stats['f1']:.3f}"
+            if eval_loader is not None
+            else "no eval set"
+        )
         print(
             f"Epoch {epoch:3d}/{args.epochs} | "
             f"loss {train_stats['loss']:.4f} | "
-            f"P {val_stats['precision']:.3f}  R {val_stats['recall']:.3f}  "
-            f"F1 {val_stats['f1']:.3f} | "
+            f"{val_str} | "
             f"lr {lr:.2e} | {elapsed:.1f}s"
         )
 
