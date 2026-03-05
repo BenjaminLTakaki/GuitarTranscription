@@ -13,6 +13,8 @@ output/
 audio/
 GAPS/
 GuitarSet/
+checkpoints/
+SyntheticGuitar/
 
 # Model checkpoints & cached features
 *.pt

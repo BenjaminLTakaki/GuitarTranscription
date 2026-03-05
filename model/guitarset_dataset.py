@@ -128,6 +128,7 @@ _SPLIT_PLAYERS = {
     "train": {"00", "01", "02", "03"},
     "val":   {"04"},
     "test":  {"05"},
+    "all":   None,  # No filtering — use every track (for synthetic data)
 }
 
 
@@ -163,9 +164,9 @@ class GuitarSetDataset(Dataset):
         ann_dir = self.root / "annotation"
         audio_dir = self.root / "audio_mono-mic"
 
-        allowed_players = _SPLIT_PLAYERS.get(split)
-        if allowed_players is None:
-            raise ValueError(f"Unknown split '{split}', expected train/val/test")
+        if split not in _SPLIT_PLAYERS:
+            raise ValueError(f"Unknown split '{split}', expected train/val/test/all")
+        allowed_players = _SPLIT_PLAYERS[split]  # None means accept all
 
         # Discover pairs of (audio, jams) by scanning the annotation dir
         self.items: List[dict] = []
@@ -174,9 +175,10 @@ class GuitarSetDataset(Dataset):
             return
 
         for jams_path in sorted(ann_dir.glob("*.jams")):
-            player_id = jams_path.stem.split("_")[0]  # e.g. "00"
-            if player_id not in allowed_players:
-                continue
+            if allowed_players is not None:
+                player_id = jams_path.stem.split("_")[0]  # e.g. "00"
+                if player_id not in allowed_players:
+                    continue
 
             # Corresponding audio: same stem + "_mic.wav"
             audio_path = audio_dir / (jams_path.stem + "_mic.wav")
@@ -222,7 +224,7 @@ class GuitarSetDataset(Dataset):
         onset_roll = tab_events_to_onsets(events, total_frames)
 
         # Crop or pad to fixed segment length during training
-        if self.split == "train":
+        if self.split in ("train", "all"):
             seg_frames = SEGMENT_FRAMES
             if total_frames > seg_frames:
                 start = random.randint(0, total_frames - seg_frames)

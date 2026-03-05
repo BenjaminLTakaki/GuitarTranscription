@@ -125,6 +125,16 @@ def main():
     parser.add_argument(
         "--checkpoint-dir", type=Path, default=Path(CHECKPOINT_DIR)
     )
+    parser.add_argument(
+        "--resume", type=Path, default=None,
+        help="Path to checkpoint .pt file to resume training from",
+    )
+    parser.add_argument(
+        "--synth-root", type=Path, default=None,
+        help="Path to synthetic data dir. When set, all tracks in synth-root/ "
+             "are used for training while GuitarSet val/test splits are kept "
+             "for evaluation (pretrain+fine-tune workflow).",
+    )
     args = parser.parse_args()
 
     # Device
@@ -135,9 +145,14 @@ def main():
     print(f"Using device: {device}")
 
     # Datasets
-    print("Loading training set (GuitarSet — players 00-03)...")
-    train_ds = GuitarSetDataset(root=args.root, split="train", augment=True)
-    print(f"  {len(train_ds)} training items")
+    if args.synth_root is not None:
+        print(f"Loading synthetic training set ({args.synth_root})...")
+        train_ds = GuitarSetDataset(root=args.synth_root, split="all", augment=True)
+        print(f"  {len(train_ds)} synthetic training items")
+    else:
+        print("Loading training set (GuitarSet — players 00-03)...")
+        train_ds = GuitarSetDataset(root=args.root, split="train", augment=True)
+        print(f"  {len(train_ds)} training items")
 
     print("Loading validation set (GuitarSet — player 04)...")
     val_ds = GuitarSetDataset(root=args.root, split="val")
@@ -192,14 +207,27 @@ def main():
     # Checkpointing
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     best_f1 = 0.0
+    start_epoch = 1
+
+    # Resume from checkpoint
+    if args.resume is not None:
+        print(f"Resuming from {args.resume} ...")
+        ckpt = torch.load(args.resume, map_location=device, weights_only=False)
+        model.load_state_dict(ckpt["model_state_dict"])
+        optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+        if "scheduler_state_dict" in ckpt:
+            scheduler.load_state_dict(ckpt["scheduler_state_dict"])
+        start_epoch = ckpt.get("epoch", 0) + 1
+        best_f1 = ckpt.get("f1", 0.0)
+        print(f"  Loaded epoch {ckpt.get('epoch', '?')}, F1={best_f1:.4f}")
 
     # Use validation set for model selection, test set for final reporting
     eval_loader = val_loader if len(val_ds) > 0 else test_loader
     eval_label = "val" if len(val_ds) > 0 else "test"
 
-    print(f"\nTraining for {args.epochs} epochs\n{'='*60}")
+    print(f"\nTraining for epochs {start_epoch}–{args.epochs}\n{'='*60}")
 
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(start_epoch, args.epochs + 1):
         t0 = time.time()
         train_stats = train_one_epoch(model, train_loader, optimizer, device, pos_weight)
         val_stats = validate(model, eval_loader, device)
@@ -223,15 +251,14 @@ def main():
         if val_stats["f1"] > best_f1:
             best_f1 = val_stats["f1"]
             ckpt_path = args.checkpoint_dir / "best_model.pt"
-            torch.save(
-                {
+            ckpt_data = {
                     "epoch": epoch,
                     "model_state_dict": model.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
+                    "scheduler_state_dict": scheduler.state_dict(),
                     "f1": best_f1,
-                },
-                ckpt_path,
-            )
+            }
+            torch.save(ckpt_data, ckpt_path)
             print(f"  ↑ New best F1={best_f1:.4f} — saved {ckpt_path}")
 
         # Save periodic checkpoint every 10 epochs
@@ -242,6 +269,7 @@ def main():
                     "epoch": epoch,
                     "model_state_dict": model.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
+                    "scheduler_state_dict": scheduler.state_dict(),
                     "f1": val_stats["f1"],
                 },
                 ckpt_path,
