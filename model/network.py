@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from model.constants import N_MELS, NUM_PITCHES
+from model.constants import N_MELS, NUM_CLASSES
 
 
 class ConvBlock(nn.Module):
@@ -30,7 +30,7 @@ class ConvBlock(nn.Module):
 
 class GuitarTranscriptionModel(nn.Module):
     """
-    CQT spectrogram → frame-level piano-roll (multi-pitch) prediction.
+    CQT spectrogram → frame-level tablature (string+fret) prediction.
 
     Architecture
     ============
@@ -39,7 +39,7 @@ class GuitarTranscriptionModel(nn.Module):
     2. **Recurrent** — one bidirectional GRU layer that captures temporal
        context across frames.
     3. **Heads** — two independent linear projections:
-       * *frame* head → sigmoid → which pitches are active each frame
+       * *frame* head → sigmoid → which (string, fret) positions are active
        * *onset* head → sigmoid → where note onsets occur
 
     Input
@@ -48,14 +48,14 @@ class GuitarTranscriptionModel(nn.Module):
 
     Output
     ------
-    frame_logits : (B, T, NUM_PITCHES)
-    onset_logits : (B, T, NUM_PITCHES)
+    frame_logits : (B, T, num_classes)
+    onset_logits : (B, T, num_classes)
     """
 
     def __init__(
         self,
         n_mels: int = N_MELS,
-        num_pitches: int = NUM_PITCHES,
+        num_classes: int = NUM_CLASSES,
         cnn_channels: tuple[int, ...] = (32, 64, 128),
         rnn_hidden: int = 256,
         rnn_layers: int = 2,
@@ -63,7 +63,7 @@ class GuitarTranscriptionModel(nn.Module):
     ):
         super().__init__()
         self.n_mels = n_mels
-        self.num_pitches = num_pitches
+        self.num_classes = num_classes
 
         # CNN encoder — pool only on frequency axis (pool=(1,2))
         layers = []
@@ -89,12 +89,12 @@ class GuitarTranscriptionModel(nn.Module):
 
         rnn_out_dim = rnn_hidden * 2  # bidirectional
 
-        # Output heads — single Linear projection (matches trained checkpoint)
+        # Output heads — single Linear projection
         self.onset_head = nn.Sequential(
-            nn.Linear(rnn_out_dim, num_pitches),
+            nn.Linear(rnn_out_dim, num_classes),
         )
         self.frame_head = nn.Sequential(
-            nn.Linear(rnn_out_dim, num_pitches),
+            nn.Linear(rnn_out_dim, num_classes),
         )
 
         self.dropout = nn.Dropout(dropout)
@@ -107,8 +107,8 @@ class GuitarTranscriptionModel(nn.Module):
 
         Returns
         -------
-        frame_logits : (B, T, num_pitches)
-        onset_logits : (B, T, num_pitches)
+        frame_logits : (B, T, num_classes)
+        onset_logits : (B, T, num_classes)
         """
         # Add channel dim → (B, 1, n_mels, T)  — treat freq as height, time as width
         # We want to pool freq but keep time, so transpose to (B, 1, T, n_mels)
@@ -124,7 +124,7 @@ class GuitarTranscriptionModel(nn.Module):
         x, _ = self.rnn(x)                           # (B, T, rnn_hidden*2)
         x = self.dropout(x)
 
-        onset_logits = self.onset_head(x)            # (B, T, num_pitches)
-        frame_logits = self.frame_head(x)             # (B, T, num_pitches)
+        onset_logits = self.onset_head(x)            # (B, T, num_classes)
+        frame_logits = self.frame_head(x)             # (B, T, num_classes)
 
         return frame_logits, onset_logits
