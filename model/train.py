@@ -262,11 +262,22 @@ def main():
         if args.scheduler == "cosine":
             scheduler.step()
         else:
-            scheduler.step(val_stats["f1"])
+            metric = val_stats["f1"] if eval_loader is not None else -train_stats["loss"]
+            scheduler.step(metric)
 
-        # Save best
-        if val_stats["f1"] > best_f1:
-            best_f1 = val_stats["f1"]
+        # Save best — when no eval set, save based on lowest training loss
+        save_best = False
+        if eval_loader is not None:
+            if val_stats["f1"] > best_f1:
+                best_f1 = val_stats["f1"]
+                save_best = True
+        else:
+            # No eval data: use training loss (lower is better)
+            if best_f1 == 0.0 or train_stats["loss"] < best_f1:
+                best_f1 = train_stats["loss"]
+                save_best = True
+
+        if save_best:
             ckpt_path = args.checkpoint_dir / "best_model.pt"
             ckpt_data = {
                     "epoch": epoch,
@@ -276,7 +287,8 @@ def main():
                     "f1": best_f1,
             }
             torch.save(ckpt_data, ckpt_path)
-            print(f"  ↑ New best F1={best_f1:.4f} — saved {ckpt_path}")
+            metric_name = "F1" if eval_loader is not None else "loss"
+            print(f"  ↑ New best {metric_name}={best_f1:.4f} — saved {ckpt_path}")
 
         # Save periodic checkpoint every 10 epochs
         if epoch % 10 == 0:

@@ -15,6 +15,7 @@ GAPS/
 checkpoints/
 SyntheticGuitar_SF2/
 SyntheticGuitar/
+GuitarSet/
 
 # Model checkpoints & cached features — track best_model.pt explicitly via git
 *.npy
