@@ -37,11 +37,11 @@ BATCH_SIZE = 16
 LEARNING_RATE = 6e-4
 NUM_EPOCHS = 50
 ONSET_TOLERANCE = 0.05     # 50 ms for evaluation
-DEFAULT_THRESHOLD = 0.5    # onset threshold for Schmitt-trigger post-processing
+DEFAULT_THRESHOLD = 0.75   # onset threshold for Schmitt-trigger post-processing
 
 # Schmitt-trigger (dual-threshold) note tracking
-ONSET_THRESHOLD = 0.5      # confidence required to START a note
-SUSTAIN_THRESHOLD = 0.15   # confidence required to SUSTAIN an already-active note
+ONSET_THRESHOLD = 0.75     # confidence required to START a note
+SUSTAIN_THRESHOLD = 0.10   # confidence required to SUSTAIN an already-active note
 
 # Minimum silence gap (frames) — if an onset fires while a note is active on the
 # same pitch, the old note is ended and a new one begins. This constant sets the

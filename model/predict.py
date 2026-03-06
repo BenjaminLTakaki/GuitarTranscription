@@ -55,7 +55,7 @@ def pianoroll_to_notes(
     onset_threshold: float = ONSET_THRESHOLD,
     sustain_threshold: float = SUSTAIN_THRESHOLD,
     min_duration_frames: int = MIN_NOTE_FRAMES,
-    median_filter_size: tuple[int, int] = (3, 3),
+    median_filter_size: tuple[int, int] = (1, 1),
 ) -> list[dict]:
     """Convert (T, P) sigmoid outputs to note events.
 
