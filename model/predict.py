@@ -52,10 +52,12 @@ load_mel = load_cqt
 def pianoroll_to_notes(
     frame_prob: np.ndarray,
     onset_prob: np.ndarray | None = None,
+    art_prob: np.ndarray | None = None,
     onset_threshold: float = ONSET_THRESHOLD,
     sustain_threshold: float = SUSTAIN_THRESHOLD,
     min_duration_frames: int = MIN_NOTE_FRAMES,
     median_filter_size: tuple[int, int] = (1, 1),
+    art_threshold: float = 0.5,
 ) -> list[dict]:
     """Convert (T, P) sigmoid outputs to note events.
 
@@ -141,6 +143,24 @@ def pianoroll_to_notes(
             })
 
     notes.sort(key=lambda n: n["start"])
+
+    # --- Tag hammer-on articulations ----------------------------------
+    if art_prob is not None:
+        frame_sec = HOP_LENGTH / SAMPLE_RATE
+        for note in notes:
+            start_f = int(round(note["start"] / frame_sec))
+            end_f = int(round(note["end"] / frame_sec))
+            start_f = max(0, min(start_f, art_prob.shape[0] - 1))
+            end_f = max(start_f + 1, min(end_f, art_prob.shape[0]))
+            # Find the class column for this (string, fret)
+            from model.constants import string_fret_to_class
+            cls = string_fret_to_class(note["string"], note["fret"])
+            mean_art = float(np.mean(art_prob[start_f:end_f, cls]))
+            note["articulation"] = "hammer_on" if mean_art >= art_threshold else "pluck"
+    else:
+        for note in notes:
+            note["articulation"] = "pluck"
+
     return notes
 
 
@@ -151,7 +171,13 @@ def _estimate_velocity(probs: np.ndarray, lo: int = 40, hi: int = 110) -> int:
 
 
 def write_midi(notes: list[dict], output_path: Path, bpm: int = 120):
-    """Write note events to a MIDI file."""
+    """Write note events to a MIDI file.
+
+    Hammer-on notes are marked with MIDI CC 68 (Legato Pedal, value 127)
+    immediately before their ``note_on``.  A CC 68 value 0 is emitted at
+    the ``note_off`` to close the legato region.  DAWs and notation
+    software that understand CC 68 will render these as slurs/legato.
+    """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     midi_file = mido.MidiFile(ticks_per_beat=480)
@@ -166,22 +192,48 @@ def write_midi(notes: list[dict], output_path: Path, bpm: int = 120):
     track.append(mido.MetaMessage("track_name", name="Acoustic Guitar", time=0))
     track.append(mido.Message("program_change", program=25, channel=0, time=0))
 
-    # Flatten note_on / note_off and sort by time
-    events = []
+    # Build a flat list of timed MIDI messages
+    #   Each entry: (time_sec, priority, message)
+    #   priority ensures CC comes just before note_on at the same tick,
+    #   and note_off comes before the next note_on.
+    CC_LEGATO = 68
+    msg_list: list[tuple[float, int, mido.Message]] = []
+
     for n in notes:
         vel = n.get("velocity", 80)
-        events.append(("on", n["start"], n["midi"], vel))
-        events.append(("off", n["end"], n["midi"], vel))
-    events.sort(key=lambda e: e[1])
+        is_hammer = n.get("articulation") == "hammer_on"
+
+        if is_hammer:
+            # CC 68 = 127 right before note_on
+            msg_list.append((
+                n["start"], 0,
+                mido.Message("control_change", control=CC_LEGATO, value=127, channel=0, time=0),
+            ))
+
+        msg_list.append((
+            n["start"], 1,
+            mido.Message("note_on", note=n["midi"], velocity=vel, channel=0, time=0),
+        ))
+        msg_list.append((
+            n["end"], 0,
+            mido.Message("note_off", note=n["midi"], velocity=0, channel=0, time=0),
+        ))
+
+        if is_hammer:
+            # CC 68 = 0 at note_off to close legato region
+            msg_list.append((
+                n["end"], 1,
+                mido.Message("control_change", control=CC_LEGATO, value=0, channel=0, time=0),
+            ))
+
+    msg_list.sort(key=lambda e: (e[0], e[1]))
 
     current_tick = 0
-    for kind, time_sec, midi_note, velocity in events:
+    for time_sec, _prio, msg in msg_list:
         abs_tick = int(round(mido.second2tick(time_sec, midi_file.ticks_per_beat, tempo)))
         delta = max(0, abs_tick - current_tick)
-        if kind == "on":
-            track.append(mido.Message("note_on", note=midi_note, velocity=velocity, time=delta))
-        else:
-            track.append(mido.Message("note_off", note=midi_note, velocity=0, time=delta))
+        msg.time = delta
+        track.append(msg)
         current_tick = abs_tick
 
     midi_file.save(str(output_path))
@@ -198,11 +250,12 @@ def predict(audio_path: Path, checkpoint_path: Path, device: torch.device):
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
 
-    frame_logits, onset_logits, _art_logits = model(mel_t)
+    frame_logits, onset_logits, art_logits = model(mel_t)
     frame_prob = torch.sigmoid(frame_logits).squeeze(0).cpu().numpy()  # (T, P)
     onset_prob = torch.sigmoid(onset_logits).squeeze(0).cpu().numpy()
+    art_prob = torch.sigmoid(art_logits).squeeze(0).cpu().numpy()      # (T, P)
 
-    return frame_prob, onset_prob
+    return frame_prob, onset_prob, art_prob
 
 
 def main():
@@ -238,18 +291,21 @@ def main():
     )
     print(f"Device: {device}")
 
-    frame_prob, onset_prob = predict(args.audio_file, args.checkpoint, device)
+    frame_prob, onset_prob, art_prob = predict(args.audio_file, args.checkpoint, device)
 
     notes = pianoroll_to_notes(
         frame_prob,
         onset_prob,
+        art_prob=art_prob,
         onset_threshold=args.threshold,
     )
     write_midi(notes, args.output)
 
     unique_pitches = sorted(set(n["midi"] for n in notes))
     unique_positions = sorted(set((n["string"], n["fret"]) for n in notes))
-    print(f"Detected {len(notes)} notes across {len(unique_pitches)} unique pitches, "
+    n_hammers = sum(1 for n in notes if n.get("articulation") == "hammer_on")
+    print(f"Detected {len(notes)} notes ({n_hammers} hammer-ons) across "
+          f"{len(unique_pitches)} unique pitches, "
           f"{len(unique_positions)} unique (string, fret) positions")
     print(f"Saved MIDI → {args.output}")
 

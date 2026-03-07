@@ -92,30 +92,48 @@ def validate(
     device: torch.device,
 ) -> dict[str, float]:
     if loader is None or len(loader.dataset) == 0:
-        return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
+        return {"precision": 0.0, "recall": 0.0, "f1": 0.0, "art_f1": 0.0}
 
     model.eval()
     all_preds: list[np.ndarray] = []
     all_targets: list[np.ndarray] = []
+    all_art_preds: list[np.ndarray] = []
+    all_art_targets: list[np.ndarray] = []
 
-    for mel, frame_target, _onset_target, _art_target in loader:
+    for mel, frame_target, _onset_target, art_target in loader:
         mel = mel.to(device)
-        frame_logits, _, _ = model(mel)
+        frame_logits, _, art_logits = model(mel)
         pred = torch.sigmoid(frame_logits).cpu().numpy()
         target = frame_target.numpy()
+        art_pred = torch.sigmoid(art_logits).cpu().numpy()
+        art_tgt = art_target.numpy()
 
         for i in range(pred.shape[0]):
             all_preds.append(pred[i])
             all_targets.append(target[i])
+            all_art_preds.append(art_pred[i])
+            all_art_targets.append(art_tgt[i])
 
     if not all_preds:
-        return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
+        return {"precision": 0.0, "recall": 0.0, "f1": 0.0, "art_f1": 0.0}
 
     # Concatenate across all samples (frame-level)
     preds = np.concatenate(all_preds, axis=0)
     targets = np.concatenate(all_targets, axis=0)
 
-    return frame_metrics(preds, targets, threshold=0.5)
+    metrics = frame_metrics(preds, targets, threshold=0.5)
+
+    # Articulation (hammer-on) frame-level F1
+    art_preds = np.concatenate(all_art_preds, axis=0)
+    art_targets = np.concatenate(all_art_targets, axis=0)
+    # Only compute when the dataset actually has articulation labels
+    if art_targets.sum() > 0:
+        art_m = frame_metrics(art_preds, art_targets, threshold=0.5)
+        metrics["art_f1"] = art_m["f1"]
+    else:
+        metrics["art_f1"] = 0.0
+
+    return metrics
 
 
 def main():
@@ -268,14 +286,16 @@ def main():
         elapsed = time.time() - t0
 
         lr = optimizer.param_groups[0]["lr"]
-        val_str = (
-            f"P {val_stats['precision']:.3f}  R {val_stats['recall']:.3f}  F1 {val_stats['f1']:.3f}"
-            if eval_loader is not None
-            else "no eval set"
-        )
+        if eval_loader is not None:
+            val_str = (
+                f"P {val_stats['precision']:.3f}  R {val_stats['recall']:.3f}  "
+                f"F1 {val_stats['f1']:.3f}  artF1 {val_stats.get('art_f1', 0.0):.3f}"
+            )
+        else:
+            val_str = "no eval set"
         print(
             f"Epoch {epoch:3d}/{args.epochs} | "
-            f"loss {train_stats['loss']:.4f} | "
+            f"loss {train_stats['loss']:.4f} (art {train_stats['art_loss']:.4f}) | "
             f"{val_str} | "
             f"lr {lr:.2e} | {elapsed:.1f}s"
         )

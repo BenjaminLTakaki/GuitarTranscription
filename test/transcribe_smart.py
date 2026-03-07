@@ -71,9 +71,9 @@ def _ml_model_notes(audio_path: Path) -> list[dict]:
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    frame_prob, onset_prob = predict(audio_path, checkpoint, device)
-    notes = pianoroll_to_notes(frame_prob, onset_prob)
-    return notes   # list of {midi, string, fret, start, end, velocity}
+    frame_prob, onset_prob, art_prob = predict(audio_path, checkpoint, device)
+    notes = pianoroll_to_notes(frame_prob, onset_prob, art_prob=art_prob)
+    return notes   # list of {midi, string, fret, start, end, velocity, articulation}
 
 
 def _pyin_notes(audio_path: Path) -> list[dict]:
