@@ -16,6 +16,7 @@ checkpoints/
 SyntheticGuitar_SF2/
 SyntheticGuitar/
 GuitarSet/
+tesstset/
 
 # Model checkpoints & cached features — track best_model.pt explicitly via git
 *.npy
