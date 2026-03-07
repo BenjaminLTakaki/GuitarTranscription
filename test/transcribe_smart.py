@@ -119,8 +119,8 @@ def _basic_pitch_notes(audio_path: Path) -> list[dict]:
     Python 3.12 wheels.  When that's resolved, uncomment the body below.
     """
     raise NotImplementedError(
-        "basic-pitch is not yet compatible with Python 3.12 on Windows.\n"
-        "It pins tensorflow<2.15.1 which has no Python 3.12 wheels.\n"
+        "basic-pitch is not yet compatible with Python 3.13 on Linux.\n"
+        "It pins tensorflow<2.15.1 which has no Python 3.13 wheels.\n"
         "Use --backend ml (default) or --backend pyin instead."
     )
     # ── future implementation ────────────────────────────────────────────────

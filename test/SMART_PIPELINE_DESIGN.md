@@ -90,19 +90,19 @@ pip install basic-pitch
 
 The failure has two layers:
 
-**Layer 1 — numpy source build failure (Python 3.12)**
+**Layer 1 — numpy source build failure (Python 3.13)**
 
 `basic-pitch` versions up to 0.3.x pin `numpy<1.24`. NumPy 1.23.x has no
-pre-built wheels for Python 3.12, so pip tries to build it from source. The
+pre-built wheels for Python 3.13, so pip tries to build it from source. The
 source build uses `pkg_resources` from an old bundled `setuptools` in pip's
 isolated build environment, which calls `pkgutil.ImpImporter` — a class that was
-**removed in Python 3.12**.
+**removed in Python 3.12** (and therefore also absent in Python 3.13).
 
 ```
 AttributeError: module 'pkgutil' has no attribute 'ImpImporter'
 ```
 
-**Layer 2 — TensorFlow version ceiling (Python 3.12)**
+**Layer 2 — TensorFlow version ceiling (Python 3.13)**
 
 `basic-pitch 0.4.0` (latest) relaxes the numpy constraint but adds a hard cap:
 
@@ -110,22 +110,23 @@ AttributeError: module 'pkgutil' has no attribute 'ImpImporter'
 tensorflow<2.15.1,>=2.4.1  (for non-Mac, Python >=3.11)
 ```
 
-TensorFlow 2.15.1 is the last version that supports Python 3.11. TensorFlow
-**dropped Python 3.11 support from their pre-built wheels** in 2.16+, and
-Python 3.12 support only arrived in TF 2.16+. So `basic-pitch` is caught in a
-gap: it requires TF `>=2.4.1` but also `<2.15.1`, and the only TF builds that
-satisfy `<2.15.1` do not have Python 3.12 wheels at all.
+TensorFlow added Python 3.12 support starting with version 2.16, and Python 3.13
+support starting with version 2.17. No TensorFlow version below 2.15.1 ships
+pre-built wheels for Python 3.12 or later. Since `basic-pitch` pins
+`tensorflow>=2.4.1,<2.15.1`, every compatible TF version predates Python 3.12+
+wheel availability. On this system, only TF 2.20.0+ has Python 3.13 wheels, but
+basic-pitch rejects all of those (≥2.15.1).
 
-This environment runs **Python 3.12.10** — squarely in the incompatible zone.
+This environment runs **Python 3.13.11** — squarely in the incompatible zone.
 
 ### What we tried
 
 | Attempt | Result |
 |---|---|
-| `pip install basic-pitch` | numpy source build fails (pkgutil.ImpImporter) |
+| `pip install basic-pitch` | numpy source build fails (`pkgutil.ImpImporter` removed in Python 3.12+) |
 | `pip install tensorflow` first, then basic-pitch | TF 2.21.0 installed but basic-pitch rejects it (>2.15.1) |
-| `pip install --no-build-isolation basic-pitch` | `distutils.msvccompiler` missing (also removed in Python 3.12) |
-| `pip install basic-pitch==0.4.0` | Hard TF ceiling fails |
+| `pip install --no-build-isolation basic-pitch` | `numpy.distutils` deprecated / removed — build fails with distutils errors on Python 3.13 |
+| `pip install basic-pitch==0.4.0` | Hard TF ceiling fails — only TF 2.20.0+ available for Python 3.13 |
 
 ### The stub
 
@@ -149,10 +150,10 @@ per-string, per-fret ground truth annotations.
 |---|---|---|
 | Domain | General (mixed instruments) | Guitar only |
 | Output | MIDI pitches | MIDI pitch + **string index + fret number** |
-| Training data | Mixed recordings | GuitarSet (guitar-specific, F1=0.7459) |
-| Onset tracking | Basic threshold | Schmitt-trigger dual-threshold + median filter |
+| Training data | Mixed recordings | GuitarSet (guitar-specific, F1=0.7843) |
+| Onset tracking | Basic threshold | Schmitt-trigger dual-threshold (onset=0.75, sustain=0.10) |
 | Polyphonic | Yes | Yes (per-string) |
-| Python 3.12 compatible | No | Yes |
+| Python 3.13 compatible | No | Yes |
 
 The ML model already knows which *string* a note is on, not just its pitch. That
 is information Basic Pitch cannot provide at all — it only outputs MIDI numbers.
@@ -231,11 +232,15 @@ string index. The optimiser still validates the fret is in range.
 
 | Metric | Baseline ML (`model/predict.py`) | Smart ML+music21 | Smart pyin+music21 |
 |---|---|---|---|
+| Evaluation F1 (GuitarSet test set) | **0.7843** (epoch 539) | 0.7843 (same model) | N/A (no test-set eval) |
+| Architecture | CNN (3 ConvBlocks) + BiGRU (2 layers, 256 hidden) + dual heads | Same model + music21 post-processing | librosa pyin + music21 |
+| Parameters | 5,534,556 | 5,534,556 (same) | N/A |
+| Output classes | 126 (6 strings × 21 frets) | 126 (same) | MIDI pitch only |
 | Raw notes detected | 21 | 21 (same) | 28 |
-| Notes after filtering | N/A | 21 (0 dropped) | 28 (0 dropped) |
-| Key confidence | N/A | **0.783** | 0.656 |
+| Notes after filtering | N/A (no filtering) | 21 (0 dropped) | 28 (0 dropped) |
+| Key detection | None | **A major** (confidence: 0.783) | A major (confidence: 0.656) |
 | Chord events identified | None | 29 | 36 |
-| String/fret per note | Yes (model) | Yes (model pass-through) | Yes (optimiser assigned) |
+| String/fret per note | Yes (model predicts string + fret) | Yes (model pass-through) | Yes (optimiser assigned) |
 | Unique positions used | 11 | 11 | 14 |
 | ASCII tab | No | **Yes** | **Yes** |
 | MIDI output | Yes | Yes | Yes |
@@ -306,7 +311,7 @@ sense — the interpretive layer the user described as wanting a "brain."
 | Key detection is global | A song that modulates (changes key mid-way) will have one key assigned to everything. Windowed key detection would fix this. |
 | Greedy fingering heuristic | Does not find globally optimal hand position sequence. Viterbi over string positions would be better. |
 | Chord labelling requires overlap | Monophonic input gets poor chord names. Rhythm and strumming detection would help group notes into chords. |
-| Basic Pitch unavailable | Python 3.12 incompatibility. Revisit when basic-pitch relaxes its TF ceiling (or when the project downgrades to Python 3.11). |
+| Basic Pitch unavailable | Python 3.13 incompatibility (`tensorflow<2.15.1` has no Python 3.13 wheels). Revisit when basic-pitch relaxes its TF ceiling. |
 | No tempo detection | Currently assumes 120 BPM for all MIDI output. `music21.tempo.MetronomeMark` analysis could infer actual BPM. |
 
 ### Future improvements
@@ -321,7 +326,7 @@ sense — the interpretive layer the user described as wanting a "brain."
    detected BPM) to produce readable sheet music rather than performance-accurate
    MIDI.
 
-4. **Basic Pitch re-evaluation** — monitor `basic-pitch` releases for Python 3.12
+4. **Basic Pitch re-evaluation** — monitor `basic-pitch` releases for Python 3.13
    support. When available, plug into `--backend basic-pitch`. It would provide
    polyphonic pitch bends (pitch contour per note) that neither pyin nor the
    current ML model outputs.
@@ -346,14 +351,14 @@ User wants "a brain" for guitar transcription
    music21 + Better pitch detection
          |
          +----> Basic Pitch (Spotify)?
-         |          -- Blocked: Python 3.12 + TF<2.15.1 incompatibility
+         |          -- Blocked: Python 3.13 + TF<2.15.1 incompatibility
          |          -- Stub left in code for future use
          |
          +----> Existing ML model as pitch backend
-                    -- Already guitar-specific, F1=0.7459 on GuitarSet
+                    -- Already guitar-specific, F1=0.7843 on GuitarSet
                     -- Outputs string+fret, not just MIDI pitch
                     -- Higher key confidence than pyin (0.783 vs 0.656)
-                    -- Python 3.12 compatible
+                    -- Python 3.13 compatible
                          |
                          v
                 music21 adds:
