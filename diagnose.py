@@ -234,7 +234,7 @@ def main():
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
 
-    frame_logits, onset_logits = model(mel_t)
+    frame_logits, onset_logits, _art_logits = model(mel_t)
     frame_prob = torch.sigmoid(frame_logits).squeeze(0).cpu().numpy()
     onset_prob = torch.sigmoid(onset_logits).squeeze(0).cpu().numpy()
 

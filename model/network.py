@@ -97,6 +97,11 @@ class GuitarTranscriptionModel(nn.Module):
             nn.Linear(rnn_out_dim, num_classes),
         )
 
+        # Articulation head — predicts hammer-on (binary) per class slot
+        self.articulation_head = nn.Sequential(
+            nn.Linear(rnn_out_dim, num_classes),
+        )
+
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, mel: torch.Tensor):
@@ -107,8 +112,9 @@ class GuitarTranscriptionModel(nn.Module):
 
         Returns
         -------
-        frame_logits : (B, T, num_classes)
-        onset_logits : (B, T, num_classes)
+        frame_logits       : (B, T, num_classes)
+        onset_logits       : (B, T, num_classes)
+        articulation_logits: (B, T, num_classes)  — hammer-on probability
         """
         # Add channel dim → (B, 1, n_mels, T)  — treat freq as height, time as width
         # We want to pool freq but keep time, so transpose to (B, 1, T, n_mels)
@@ -126,5 +132,6 @@ class GuitarTranscriptionModel(nn.Module):
 
         onset_logits = self.onset_head(x)            # (B, T, num_classes)
         frame_logits = self.frame_head(x)             # (B, T, num_classes)
+        art_logits = self.articulation_head(x)        # (B, T, num_classes)
 
-        return frame_logits, onset_logits
+        return frame_logits, onset_logits, art_logits

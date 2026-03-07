@@ -87,3 +87,68 @@ def _extract_onsets(
             if binary[t, p] == 1 and (t == 0 or binary[t - 1, p] == 0):
                 onsets.add((t, p))
     return onsets
+
+
+# ---------------------------------------------------------------------------
+# Articulation-level evaluation (e.g. hammer-on / pull-off detection)
+# ---------------------------------------------------------------------------
+
+def articulation_metrics(
+    pred_events: list[dict],
+    target_events: list[dict],
+    tolerance_frames: int = 2,
+    hop_sec: float = 0.01,
+) -> dict[str, float]:
+    """Evaluate how accurately the model classifies note articulations.
+
+    Both *pred_events* and *target_events* are lists of dicts that must
+    contain at least the keys ``midi``, ``string``, ``onset`` (seconds),
+    and ``articulation`` (e.g. ``"hammer_on"`` or ``"pluck"``).
+
+    Parameters
+    ----------
+    pred_events : predicted note events with articulation labels.
+    target_events : ground-truth note events with articulation labels.
+    tolerance_frames : how many frames of onset‐time tolerance to allow.
+    hop_sec : duration of one frame in seconds (default 10 ms).
+
+    Returns
+    -------
+    dict with hammer_on_precision, hammer_on_recall, hammer_on_f1.
+    """
+    target_hammers = [
+        e for e in target_events if e.get("articulation") == "hammer_on"
+    ]
+    pred_hammers = [
+        e for e in pred_events if e.get("articulation") == "hammer_on"
+    ]
+
+    tp_hammer = 0
+    matched_targets: set[int] = set()
+
+    for p_event in pred_hammers:
+        for i, t_event in enumerate(target_hammers):
+            if i in matched_targets:
+                continue
+            time_diff = abs(p_event["onset"] - t_event["onset"])
+            if (
+                p_event["midi"] == t_event["midi"]
+                and p_event["string"] == t_event["string"]
+                and time_diff <= tolerance_frames * hop_sec
+            ):
+                tp_hammer += 1
+                matched_targets.add(i)
+                break
+
+    fp_hammer = len(pred_hammers) - tp_hammer
+    fn_hammer = len(target_hammers) - len(matched_targets)
+
+    precision = tp_hammer / (tp_hammer + fp_hammer + 1e-8)
+    recall = tp_hammer / (tp_hammer + fn_hammer + 1e-8)
+    f1 = 2 * precision * recall / (precision + recall + 1e-8)
+
+    return {
+        "hammer_on_precision": float(precision),
+        "hammer_on_recall": float(recall),
+        "hammer_on_f1": float(f1),
+    }

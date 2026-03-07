@@ -198,7 +198,7 @@ def predict(audio_path: Path, checkpoint_path: Path, device: torch.device):
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
 
-    frame_logits, onset_logits = model(mel_t)
+    frame_logits, onset_logits, _art_logits = model(mel_t)
     frame_prob = torch.sigmoid(frame_logits).squeeze(0).cpu().numpy()  # (T, P)
     onset_prob = torch.sigmoid(onset_logits).squeeze(0).cpu().numpy()
 

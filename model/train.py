@@ -26,11 +26,12 @@ from model.network import GuitarTranscriptionModel
 
 def collate_fn(batch):
     """Stack variable-length items — training items are fixed-length segments."""
-    mels, frames, onsets = zip(*batch)
+    mels, frames, onsets, arts = zip(*batch)
     return (
         torch.stack(mels),
         torch.stack(frames),
         torch.stack(onsets),
+        torch.stack(arts),
     )
 
 
@@ -45,21 +46,25 @@ def train_one_epoch(
     total_loss = 0.0
     total_frame_loss = 0.0
     total_onset_loss = 0.0
+    total_art_loss = 0.0
     n_batches = 0
 
     frame_criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     onset_criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight * 2)
+    art_criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight * 2)
 
-    for mel, frame_target, onset_target in loader:
+    for mel, frame_target, onset_target, art_target in loader:
         mel = mel.to(device)
         frame_target = frame_target.to(device)
         onset_target = onset_target.to(device)
+        art_target = art_target.to(device)
 
-        frame_logits, onset_logits = model(mel)
+        frame_logits, onset_logits, art_logits = model(mel)
 
         loss_frame = frame_criterion(frame_logits, frame_target)
         loss_onset = onset_criterion(onset_logits, onset_target)
-        loss = loss_frame + 1.0 * loss_onset
+        loss_art = art_criterion(art_logits, art_target)
+        loss = loss_frame + 1.0 * loss_onset + 0.5 * loss_art
 
         optimizer.zero_grad()
         loss.backward()
@@ -69,12 +74,14 @@ def train_one_epoch(
         total_loss += loss.item()
         total_frame_loss += loss_frame.item()
         total_onset_loss += loss_onset.item()
+        total_art_loss += loss_art.item()
         n_batches += 1
 
     return {
         "loss": total_loss / max(n_batches, 1),
         "frame_loss": total_frame_loss / max(n_batches, 1),
         "onset_loss": total_onset_loss / max(n_batches, 1),
+        "art_loss": total_art_loss / max(n_batches, 1),
     }
 
 
@@ -91,9 +98,9 @@ def validate(
     all_preds: list[np.ndarray] = []
     all_targets: list[np.ndarray] = []
 
-    for mel, frame_target, _onset_target in loader:
+    for mel, frame_target, _onset_target, _art_target in loader:
         mel = mel.to(device)
-        frame_logits, _ = model(mel)
+        frame_logits, _, _ = model(mel)
         pred = torch.sigmoid(frame_logits).cpu().numpy()
         target = frame_target.numpy()
 

@@ -117,6 +117,75 @@ def tab_events_to_onsets(
 
 
 # ---------------------------------------------------------------------------
+# Articulation parsing
+# ---------------------------------------------------------------------------
+
+def jams_to_articulation_events(
+    jams_path: str | Path,
+) -> List[Tuple[float, float, int]]:
+    """Extract hammer-on events from the *articulation* JAMS namespace.
+
+    Returns a list of ``(onset_sec, offset_sec, class_idx)`` for every
+    hammer-on note.  Class indices use the same encoding as the main
+    tablature target (``string * NUM_FRETS + fret``).  If the JAMS file
+    has no articulation namespace (e.g. real GuitarSet), an empty list is
+    returned.
+    """
+    with open(jams_path, "r", encoding="utf-8") as f:
+        jams = json.load(f)
+
+    events: List[Tuple[float, float, int]] = []
+
+    for ann in jams.get("annotations", []):
+        if ann.get("namespace") != "articulation":
+            continue
+        for obs in ann.get("data", []):
+            if obs.get("value") != "hammer_on":
+                continue
+            # string / midi fields are stored by generate_synthetic.py
+            string = obs.get("string")
+            midi = obs.get("midi")
+            if string is None or midi is None:
+                continue
+            class_idx = midi_string_to_class(int(round(midi)), int(string))
+            if class_idx is None:
+                continue
+            onset = obs["time"]
+            offset = onset + obs["duration"]
+            events.append((onset, offset, class_idx))
+
+    return events
+
+
+def articulation_events_to_roll(
+    events: List[Tuple[float, float, int]],
+    num_frames: int,
+    num_classes: int = NUM_CLASSES,
+    hop_length: int = HOP_LENGTH,
+    sr: int = SAMPLE_RATE,
+) -> np.ndarray:
+    """Build a (num_frames, NUM_CLASSES) binary roll for hammer-on events.
+
+    The roll is 1 wherever a hammer-on note is active (same layout as the
+    main frame roll).  This serves as the supervision target for the
+    articulation head.
+    """
+    roll = np.zeros((num_frames, num_classes), dtype=np.float32)
+    frame_dur = hop_length / sr
+
+    for onset, offset, class_idx in events:
+        if class_idx < 0 or class_idx >= num_classes:
+            continue
+        start_frame = int(round(onset / frame_dur))
+        end_frame = int(round(offset / frame_dur))
+        start_frame = max(0, min(start_frame, num_frames - 1))
+        end_frame = max(start_frame + 1, min(end_frame, num_frames))
+        roll[start_frame:end_frame, class_idx] = 1.0
+
+    return roll
+
+
+# ---------------------------------------------------------------------------
 # Dataset
 # ---------------------------------------------------------------------------
 
@@ -223,6 +292,11 @@ class GuitarSetDataset(Dataset):
         frame_roll = tab_events_to_roll(events, total_frames)
         onset_roll = tab_events_to_onsets(events, total_frames)
 
+        # Articulation roll (hammer-on labels) — zeros for datasets without
+        # an articulation namespace (e.g. real GuitarSet recordings).
+        art_events = jams_to_articulation_events(item["jams_path"])
+        art_roll = articulation_events_to_roll(art_events, total_frames)
+
         # Crop or pad to fixed segment length during training
         if self.split in ("train", "all"):
             seg_frames = SEGMENT_FRAMES
@@ -233,6 +307,7 @@ class GuitarSetDataset(Dataset):
             spec = spec[:, start : start + seg_frames]
             frame_roll = frame_roll[start : start + seg_frames]
             onset_roll = onset_roll[start : start + seg_frames]
+            art_roll = art_roll[start : start + seg_frames]
 
             # Pad if shorter
             if spec.shape[1] < seg_frames:
@@ -240,6 +315,7 @@ class GuitarSetDataset(Dataset):
                 spec = np.pad(spec, ((0, 0), (0, pad_w)))
                 frame_roll = np.pad(frame_roll, ((0, pad_w), (0, 0)))
                 onset_roll = np.pad(onset_roll, ((0, pad_w), (0, 0)))
+                art_roll = np.pad(art_roll, ((0, pad_w), (0, 0)))
 
             # Apply spectrogram augmentations
             if self.augment:
@@ -249,8 +325,9 @@ class GuitarSetDataset(Dataset):
         spec_t = torch.from_numpy(spec)             # (n_bins, T)
         frame_t = torch.from_numpy(frame_roll)      # (T, NUM_CLASSES)
         onset_t = torch.from_numpy(onset_roll)      # (T, NUM_CLASSES)
+        art_t = torch.from_numpy(art_roll)           # (T, NUM_CLASSES)
 
-        return spec_t, frame_t, onset_t
+        return spec_t, frame_t, onset_t, art_t
 
     # ---- Spectrogram augmentation ----
 

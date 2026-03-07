@@ -76,6 +76,7 @@ def karplus_strong(
     brightness: float | None = None,
     body_resonance: float | None = None,
     decay_factor: float | None = None,
+    is_hammer_on: bool = False,
 ) -> np.ndarray:
     """Synthesise a single plucked string via extended Karplus-Strong.
 
@@ -88,6 +89,7 @@ def karplus_strong(
     brightness : 0–1, controls the low-pass smoothing amount.
     body_resonance : 0–1, strength of a simple body‐resonance filter.
     decay_factor : 0–1, additional per-sample energy loss.
+    is_hammer_on : if True, use a low-energy impulse instead of a full pick attack.
     """
     if pluck_position is None:
         pluck_position = random.uniform(0.05, 0.5)
@@ -99,8 +101,13 @@ def karplus_strong(
     n_samples = int(sr * duration)
     delay_len = max(2, int(round(sr / frequency)))
 
-    # Initial excitation: filtered noise burst
-    buf = np.random.uniform(-1, 1, delay_len).astype(np.float64)
+    # Initial excitation
+    if is_hammer_on:
+        # No pick attack — low-energy impulse simulates finger hitting fretboard
+        buf = np.random.uniform(-0.1, 0.1, delay_len).astype(np.float64)
+    else:
+        # Standard pick burst
+        buf = np.random.uniform(-1, 1, delay_len).astype(np.float64)
 
     # Pluck position comb filter — notches harmonics at 1/pluck_position
     comb_delay = max(1, int(round(delay_len * pluck_position)))
@@ -396,11 +403,87 @@ def generate_arpeggios(
     return events
 
 
+def generate_hammer_ons(
+    duration: float,
+    bpm: float,
+) -> List[dict]:
+    """Generate melodic phrases that include hammer-on articulations.
+
+    A hammer-on occurs when a note is 1–2 frets *higher* on the same string
+    as the previous note, played without re-picking.
+    """
+    events: List[dict] = []
+    beat_dur = 60.0 / bpm
+    t = random.uniform(0.0, 0.5)
+
+    scale_name = random.choice(list(_SCALE_PATTERNS.keys()))
+    intervals = _SCALE_PATTERNS[scale_name]
+    root_midi = random.randint(40, 60)
+
+    prev_string: int | None = None
+    prev_fret: int | None = None
+
+    while t < duration - 0.1:
+        note_midi = root_midi + random.choice(intervals)
+        pos = _string_for_midi(note_midi)
+        if pos is None:
+            t += beat_dur * random.choice([0.5, 1])
+            prev_string = None
+            prev_fret = None
+            continue
+
+        string, fret = pos
+
+        # Determine if this note qualifies as a hammer-on
+        is_hammer = False
+        if (
+            prev_string is not None
+            and string == prev_string
+            and prev_fret is not None
+            and 1 <= (fret - prev_fret) <= 2
+        ):
+            is_hammer = True
+
+        # Hammer-on notes are typically fast
+        if is_hammer:
+            note_dur_beats = random.choice([0.25, 0.25, 0.5])
+        else:
+            note_dur_beats = random.choice([0.5, 1.0, 1.0])
+        note_dur = note_dur_beats * beat_dur
+        note_dur = min(note_dur, duration - t)
+        note_dur = max(note_dur, 0.08)
+
+        velocity = random.uniform(0.3, 0.7) if is_hammer else random.uniform(0.5, 1.0)
+
+        events.append({
+            "string": string,
+            "fret": fret,
+            "midi": note_midi,
+            "onset": t,
+            "duration": note_dur,
+            "velocity": velocity,
+            "articulation": "hammer_on" if is_hammer else "pluck",
+        })
+
+        prev_string = string
+        prev_fret = fret
+
+        gap = random.uniform(0.0, 0.05) if is_hammer else random.uniform(0.0, 0.15)
+        t += note_dur + gap
+
+        # Occasionally reset so not every note chains
+        if random.random() < 0.2:
+            prev_string = None
+            prev_fret = None
+
+    return events
+
+
 def generate_mixed_pattern(duration: float, bpm: float) -> List[dict]:
     """Generate a mix of single notes, chords, and arpeggios in sections."""
     events = []
     t = 0.0
-    generators = [generate_single_notes, generate_chords, generate_arpeggios]
+    generators = [generate_single_notes, generate_chords, generate_arpeggios, generate_hammer_ons]
 
     while t < duration:
         section_dur = random.uniform(3.0, min(10.0, duration - t))
@@ -445,12 +528,15 @@ def render_events(
 
         dur = ev["duration"] + random.uniform(0.1, 0.5)  # ring-out tail
 
+        is_hammer = ev.get("articulation") == "hammer_on"
+
         note_audio = karplus_strong(
             freq, dur, sr,
             pluck_position=pluck_pos,
             brightness=brightness,
             body_resonance=body,
             decay_factor=decay,
+            is_hammer_on=is_hammer,
         )
 
         # Apply velocity
@@ -538,6 +624,36 @@ def events_to_jams(
             "duration": duration,
         })
 
+    # ---- articulation annotation (one for entire track) -----
+    art_obs = []
+    for e in events:
+        art_label = e.get("articulation", "pluck")
+        art_obs.append({
+            "time": e["onset"],
+            "duration": e["duration"],
+            "value": art_label,
+            "confidence": 1.0 if art_label != "pluck" else None,
+            "string": e["string"],
+            "midi": e["midi"],
+        })
+    annotations.append({
+        "annotation_metadata": {
+            "curator": {"name": "synthetic", "email": ""},
+            "annotator": {},
+            "version": "1.0",
+            "corpus": "SyntheticGuitar",
+            "annotation_tools": "generate_synthetic.py",
+            "annotation_rules": "",
+            "validation": "",
+            "data_source": "all",
+        },
+        "namespace": "articulation",
+        "data": art_obs,
+        "sandbox": {},
+        "time": 0,
+        "duration": duration,
+    })
+
     jams = {
         "annotations": annotations,
         "file_metadata": {
@@ -575,6 +691,7 @@ def generate_track(
         generate_single_notes,
         generate_chords,
         generate_arpeggios,
+        generate_hammer_ons,
         generate_mixed_pattern,
     ])
     events = gen(duration, bpm)
