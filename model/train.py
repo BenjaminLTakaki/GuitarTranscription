@@ -221,11 +221,25 @@ def main():
         ckpt = torch.load(args.resume, map_location=device, weights_only=False)
         model.load_state_dict(ckpt["model_state_dict"])
         optimizer.load_state_dict(ckpt["optimizer_state_dict"])
-        if "scheduler_state_dict" in ckpt:
-            scheduler.load_state_dict(ckpt["scheduler_state_dict"])
         start_epoch = ckpt.get("epoch", 0) + 1
         best_f1 = ckpt.get("f1", 0.0)
+
+        # Apply the CLI --lr (overrides whatever the checkpoint had)
+        for pg in optimizer.param_groups:
+            pg["lr"] = args.lr
         print(f"  Loaded epoch {ckpt.get('epoch', '?')}, F1={best_f1:.4f}")
+        print(f"  LR overridden to {args.lr:.2e}")
+
+        # Rebuild scheduler for remaining epochs so cosine decay is correct
+        remaining = args.epochs - start_epoch + 1
+        if args.scheduler == "cosine":
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=remaining, eta_min=1e-6,
+            )
+        else:
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer, mode="max", factor=0.5, patience=5,
+            )
 
     # Use validation set for model selection, test set for final reporting
     if len(val_ds) > 0:

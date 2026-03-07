@@ -161,6 +161,11 @@ def write_midi(notes: list[dict], output_path: Path, bpm: int = 120):
     tempo = mido.bpm2tempo(bpm)
     track.append(mido.MetaMessage("set_tempo", tempo=tempo, time=0))
 
+    # Set instrument to Acoustic Guitar (Steel) so DAWs / MuseScore import
+    # it correctly instead of defaulting to piano (program 0).
+    track.append(mido.MetaMessage("track_name", name="Acoustic Guitar", time=0))
+    track.append(mido.Message("program_change", program=25, channel=0, time=0))
+
     # Flatten note_on / note_off and sort by time
     events = []
     for n in notes:
