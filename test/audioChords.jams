@@ -1,0 +1,163 @@
+{
+  "file_metadata": {
+    "title": "Chord Benchmark Test",
+    "duration": 7.1
+  },
+  "sandbox": {},
+  "annotations": [
+    {
+      "namespace": "note_midi",
+      "data": [
+        {
+          "time": 1.7,
+          "duration": 1.5,
+          "value": 43,
+          "confidence": 1.0
+        },
+        {
+          "time": 5.1,
+          "duration": 1.5,
+          "value": 41,
+          "confidence": 1.0
+        }
+      ],
+      "annotation_metadata": {
+        "data_source": "ground_truth",
+        "corpus": "chord_benchmark"
+      },
+      "sandbox": {
+        "string_index": 0
+      }
+    },
+    {
+      "namespace": "note_midi",
+      "data": [
+        {
+          "time": 0.0,
+          "duration": 1.5,
+          "value": 48,
+          "confidence": 1.0
+        },
+        {
+          "time": 1.7,
+          "duration": 1.5,
+          "value": 47,
+          "confidence": 1.0
+        },
+        {
+          "time": 3.4,
+          "duration": 1.5,
+          "value": 45,
+          "confidence": 1.0
+        },
+        {
+          "time": 5.1,
+          "duration": 1.5,
+          "value": 45,
+          "confidence": 1.0
+        },
+        {
+          "time": 5.1,
+          "duration": 1.5,
+          "value": 48,
+          "confidence": 1.0
+        }
+      ],
+      "annotation_metadata": {
+        "data_source": "ground_truth",
+        "corpus": "chord_benchmark"
+      },
+      "sandbox": {
+        "string_index": 1
+      }
+    },
+    {
+      "namespace": "note_midi",
+      "data": [
+        {
+          "time": 0.0,
+          "duration": 1.5,
+          "value": 52,
+          "confidence": 1.0
+        },
+        {
+          "time": 1.7,
+          "duration": 1.5,
+          "value": 50,
+          "confidence": 1.0
+        },
+        {
+          "time": 3.4,
+          "duration": 1.5,
+          "value": 52,
+          "confidence": 1.0
+        },
+        {
+          "time": 5.1,
+          "duration": 1.5,
+          "value": 53,
+          "confidence": 1.0
+        }
+      ],
+      "annotation_metadata": {
+        "data_source": "ground_truth",
+        "corpus": "chord_benchmark"
+      },
+      "sandbox": {
+        "string_index": 2
+      }
+    },
+    {
+      "namespace": "note_midi",
+      "data": [
+        {
+          "time": 0.0,
+          "duration": 1.5,
+          "value": 55,
+          "confidence": 1.0
+        },
+        {
+          "time": 1.7,
+          "duration": 1.5,
+          "value": 55,
+          "confidence": 1.0
+        },
+        {
+          "time": 3.4,
+          "duration": 1.5,
+          "value": 57,
+          "confidence": 1.0
+        }
+      ],
+      "annotation_metadata": {
+        "data_source": "ground_truth",
+        "corpus": "chord_benchmark"
+      },
+      "sandbox": {
+        "string_index": 3
+      }
+    },
+    {
+      "namespace": "note_midi",
+      "data": [],
+      "annotation_metadata": {
+        "data_source": "ground_truth",
+        "corpus": "chord_benchmark"
+      },
+      "sandbox": {
+        "string_index": 4
+      }
+    },
+    {
+      "namespace": "note_midi",
+      "data": [],
+      "annotation_metadata": {
+        "data_source": "ground_truth",
+        "corpus": "chord_benchmark"
+      },
+      "sandbox": {
+        "string_index": 5
+      }
+    }
+  ]
+}
