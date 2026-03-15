@@ -29,6 +29,13 @@ from model.constants import (
 from model.network import GuitarTranscriptionModel
 
 
+def _detect_model_version(state_dict: dict) -> str:
+    """Auto-detect v1 vs v2 from checkpoint keys."""
+    if any("transformer" in k for k in state_dict.keys()):
+        return "v2"
+    return "v1"
+
+
 def load_cqt(audio_path: Path) -> np.ndarray:
     """Load audio and return normalised log-CQT spectrogram (n_bins, T)."""
     y, _ = librosa.load(str(audio_path), sr=SAMPLE_RATE, mono=True)
@@ -144,6 +151,14 @@ def pianoroll_to_notes(
 
     notes.sort(key=lambda n: n["start"])
 
+    # --- Temporal boundary enforcement: discard notes past audio end ---
+    audio_duration = T * HOP_LENGTH / SAMPLE_RATE
+    notes = [n for n in notes if n["start"] <= audio_duration + 0.1]
+
+    # --- Cross-string deduplication: same MIDI pitch on multiple strings ---
+    notes = _dedup_simultaneous(notes)
+    notes.sort(key=lambda n: n["start"])
+
     # --- Tag hammer-on articulations ----------------------------------
     if art_prob is not None:
         frame_sec = HOP_LENGTH / SAMPLE_RATE
@@ -162,6 +177,36 @@ def pianoroll_to_notes(
             note["articulation"] = "pluck"
 
     return notes
+
+
+def _dedup_simultaneous(notes: list[dict], time_tolerance: float = 0.03) -> list[dict]:
+    """If the same MIDI pitch fires on multiple strings within time_tolerance,
+    keep only the activation with the highest mean frame probability."""
+    from collections import defaultdict
+
+    # Group notes by MIDI pitch
+    by_midi = defaultdict(list)
+    for n in notes:
+        by_midi[n["midi"]].append(n)
+
+    deduped = []
+    for midi, group in by_midi.items():
+        group.sort(key=lambda n: n["start"])
+        kept = [group[0]]
+        for n in group[1:]:
+            prev = kept[-1]
+            # Check if this overlaps or starts within tolerance of the previous
+            if n["start"] < prev["end"] + time_tolerance:
+                # Keep the one with higher velocity (proxy for frame probability)
+                if n.get("velocity", 0) > prev.get("velocity", 0):
+                    kept[-1] = n  # replace
+                # else: keep prev, drop n
+            else:
+                kept.append(n)
+        deduped.extend(kept)
+
+    deduped.sort(key=lambda n: n["start"])
+    return deduped
 
 
 def _estimate_velocity(probs: np.ndarray, lo: int = 40, hi: int = 110) -> int:
@@ -245,8 +290,13 @@ def predict(audio_path: Path, checkpoint_path: Path, device: torch.device):
     mel = load_cqt(audio_path)                          # (n_bins, T)
     mel_t = torch.from_numpy(mel).unsqueeze(0).to(device)  # (1, n_bins, T)
 
-    model = GuitarTranscriptionModel().to(device)
     ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
+    version = _detect_model_version(ckpt["model_state_dict"])
+    if version == "v2":
+        from model.network_v2 import GuitarTranscriptionModelV2
+        model = GuitarTranscriptionModelV2().to(device)
+    else:
+        model = GuitarTranscriptionModel().to(device)
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
 

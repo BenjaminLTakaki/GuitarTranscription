@@ -159,9 +159,10 @@ def generate_single_notes(duration: float, bpm: float) -> List[dict]:
         string, fret = pos
         dur = random.choice([0.25, 0.5, 0.5, 1.0, 1.0, 2.0]) * beat
         dur = max(0.08, min(dur, duration - t))
-        vel = int(random.uniform(50, 110))
+        vel = int(max(30, min(127, random.uniform(50, 110) + random.gauss(0, 8))))
+        jittered_onset = max(0.0, t + random.gauss(0, 0.012))
         events.append({"string": string, "fret": fret, "midi": midi,
-                        "onset": t, "duration": dur, "velocity": vel})
+                        "onset": jittered_onset, "duration": dur, "velocity": vel})
         t += dur + random.uniform(0.0, 0.15) * (random.random() < 0.5)
     return events
 
@@ -189,9 +190,10 @@ def generate_chords(duration: float, bpm: float) -> List[dict]:
                 break
             midi = GUITAR_TUNING[rel_s] + f
             note_dur = max(0.1, min(chord_dur - i * strum_delay, duration - onset))
-            vel = int(random.uniform(55, 110))
+            vel = int(max(30, min(127, random.uniform(55, 110) + random.gauss(0, 8))))
+            jittered_onset = max(0.0, onset + random.gauss(0, 0.012))
             events.append({"string": rel_s, "fret": f, "midi": midi,
-                            "onset": onset, "duration": note_dur, "velocity": vel})
+                            "onset": jittered_onset, "duration": note_dur, "velocity": vel})
         t += chord_dur + random.uniform(0.0, 0.1)
         idx += 1
     return events
@@ -221,9 +223,10 @@ def generate_arpeggios(duration: float, bpm: float) -> List[dict]:
                 continue
             midi = GUITAR_TUNING[rel_s] + f
             ring = min(random.uniform(note_dur, note_dur * 4), duration - t)
-            vel = int(random.uniform(45, 95))
+            vel = int(max(30, min(127, random.uniform(45, 95) + random.gauss(0, 8))))
+            jittered_onset = max(0.0, t + random.gauss(0, 0.012))
             events.append({"string": rel_s, "fret": f, "midi": midi,
-                            "onset": t, "duration": ring, "velocity": vel})
+                            "onset": jittered_onset, "duration": ring, "velocity": vel})
             t += note_dur
         t += random.uniform(0.0, beat)
     return events

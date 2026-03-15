@@ -166,6 +166,14 @@ def main():
              "are used for training while GuitarSet val/test splits are kept "
              "for evaluation (pretrain+fine-tune workflow).",
     )
+    parser.add_argument(
+        "--mixed", action="store_true",
+        help="Train on synthetic + real data combined. Requires --synth-root.",
+    )
+    parser.add_argument(
+        "--model", choices=["v1", "v2"], default="v1",
+        help="v1 = CNN+BiGRU (default), v2 = CNN+Transformer",
+    )
     args = parser.parse_args()
 
     # Device
@@ -176,7 +184,14 @@ def main():
     print(f"Using device: {device}")
 
     # Datasets
-    if args.synth_root is not None:
+    if args.mixed and args.synth_root is not None:
+        from torch.utils.data import ConcatDataset
+        print(f"Loading mixed training set (synthetic + real)...")
+        synth_ds = GuitarSetDataset(root=args.synth_root, split="all", augment=True)
+        real_ds = GuitarSetDataset(root=args.root, split="train", augment=True)
+        train_ds = ConcatDataset([synth_ds, real_ds])
+        print(f"  Mixed training: {len(synth_ds)} synthetic + {len(real_ds)} real = {len(train_ds)} total")
+    elif args.synth_root is not None:
         print(f"Loading synthetic training set ({args.synth_root})...")
         train_ds = GuitarSetDataset(root=args.synth_root, split="all", augment=True)
         print(f"  {len(train_ds)} synthetic training items")
@@ -217,7 +232,13 @@ def main():
     )
 
     # Model
-    model = GuitarTranscriptionModel().to(device)
+    if args.model == "v2":
+        from model.network_v2 import GuitarTranscriptionModelV2
+        model = GuitarTranscriptionModelV2().to(device)
+        print("Using model: v2 (CNN+Transformer)")
+    else:
+        model = GuitarTranscriptionModel().to(device)
+        print("Using model: v1 (CNN+BiGRU)")
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {total_params:,}")
 
