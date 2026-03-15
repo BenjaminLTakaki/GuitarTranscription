@@ -174,6 +174,11 @@ def main():
         "--model", choices=["v1", "v2"], default="v1",
         help="v1 = CNN+BiGRU (default), v2 = CNN+Transformer",
     )
+    parser.add_argument(
+        "--aligned-root", type=Path, default=None,
+        help="Path to AlignedDataset/ dir (from pipeline.run). "
+             "Combined with other training data when set.",
+    )
     args = parser.parse_args()
 
     # Device
@@ -184,21 +189,39 @@ def main():
     print(f"Using device: {device}")
 
     # Datasets
+    from torch.utils.data import ConcatDataset
+
+    datasets_to_combine: list = []
+
     if args.mixed and args.synth_root is not None:
-        from torch.utils.data import ConcatDataset
         print(f"Loading mixed training set (synthetic + real)...")
         synth_ds = GuitarSetDataset(root=args.synth_root, split="all", augment=True)
         real_ds = GuitarSetDataset(root=args.root, split="train", augment=True)
-        train_ds = ConcatDataset([synth_ds, real_ds])
-        print(f"  Mixed training: {len(synth_ds)} synthetic + {len(real_ds)} real = {len(train_ds)} total")
+        datasets_to_combine.extend([synth_ds, real_ds])
+        print(f"  Mixed training: {len(synth_ds)} synthetic + {len(real_ds)} real")
     elif args.synth_root is not None:
         print(f"Loading synthetic training set ({args.synth_root})...")
-        train_ds = GuitarSetDataset(root=args.synth_root, split="all", augment=True)
-        print(f"  {len(train_ds)} synthetic training items")
+        synth_ds = GuitarSetDataset(root=args.synth_root, split="all", augment=True)
+        datasets_to_combine.append(synth_ds)
+        print(f"  {len(synth_ds)} synthetic training items")
     else:
         print("Loading training set (GuitarSet — players 00-03)...")
-        train_ds = GuitarSetDataset(root=args.root, split="train", augment=True)
-        print(f"  {len(train_ds)} training items")
+        real_ds = GuitarSetDataset(root=args.root, split="train", augment=True)
+        datasets_to_combine.append(real_ds)
+        print(f"  {len(real_ds)} training items")
+
+    # Add aligned dataset if provided
+    if args.aligned_root is not None:
+        print(f"Loading aligned dataset ({args.aligned_root})...")
+        aligned_ds = GuitarSetDataset(root=args.aligned_root, split="all", augment=True)
+        datasets_to_combine.append(aligned_ds)
+        print(f"  {len(aligned_ds)} aligned training items")
+
+    if len(datasets_to_combine) == 1:
+        train_ds = datasets_to_combine[0]
+    else:
+        train_ds = ConcatDataset(datasets_to_combine)
+    print(f"  Total training items: {len(train_ds)}")
 
     print("Loading validation set (GuitarSet — player 04)...")
     val_ds = GuitarSetDataset(root=args.root, split="val")
