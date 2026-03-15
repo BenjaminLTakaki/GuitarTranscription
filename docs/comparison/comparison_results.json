@@ -1,0 +1,403 @@
+{
+  "iteration1": {
+    "name": "Iteration 1 (librosa pyin)",
+    "short_name": "pyin",
+    "sounding_notes": [
+      "C3",
+      "D3",
+      "E3",
+      "F3",
+      "G3",
+      "A3",
+      "B3",
+      "C4"
+    ],
+    "written_notes": [
+      "C4",
+      "D4",
+      "E4",
+      "F4",
+      "G4",
+      "A4",
+      "B4",
+      "C5"
+    ],
+    "sounding_midi": [
+      48,
+      50,
+      52,
+      53,
+      55,
+      57,
+      59,
+      60
+    ],
+    "written_midi": [
+      60,
+      62,
+      64,
+      65,
+      67,
+      69,
+      71,
+      72
+    ],
+    "note_count": 8,
+    "matches": [
+      {
+        "position": 1,
+        "expected": "C4",
+        "detected": "C4",
+        "match": true
+      },
+      {
+        "position": 2,
+        "expected": "D4",
+        "detected": "D4",
+        "match": true
+      },
+      {
+        "position": 3,
+        "expected": "E4",
+        "detected": "E4",
+        "match": true
+      },
+      {
+        "position": 4,
+        "expected": "F4",
+        "detected": "F4",
+        "match": true
+      },
+      {
+        "position": 5,
+        "expected": "G4",
+        "detected": "G4",
+        "match": true
+      },
+      {
+        "position": 6,
+        "expected": "A4",
+        "detected": "A4",
+        "match": true
+      },
+      {
+        "position": 7,
+        "expected": "B4",
+        "detected": "B4",
+        "match": true
+      },
+      {
+        "position": 8,
+        "expected": "C5",
+        "detected": "C5",
+        "match": true
+      }
+    ],
+    "correct": 8,
+    "accuracy": 100.0,
+    "midi_file": "output/comparison/iter1_pyin.mid",
+    "extra_notes": []
+  },
+  "iteration2": {
+    "name": "Iteration 2 (CNN+BiGRU ML)",
+    "short_name": "ML",
+    "sounding_notes": [
+      "C3",
+      "C4",
+      "D3",
+      "E3",
+      "F3",
+      "G3",
+      "G3",
+      "A3",
+      "B3",
+      "B3",
+      "C4"
+    ],
+    "written_notes": [
+      "C4",
+      "C5",
+      "D4",
+      "E4",
+      "F4",
+      "G4",
+      "G4",
+      "A4",
+      "B4",
+      "B4",
+      "C5"
+    ],
+    "sounding_midi": [
+      48,
+      60,
+      50,
+      52,
+      53,
+      55,
+      55,
+      57,
+      59,
+      59,
+      60
+    ],
+    "written_midi": [
+      60,
+      72,
+      62,
+      64,
+      65,
+      67,
+      67,
+      69,
+      71,
+      71,
+      72
+    ],
+    "note_count": 11,
+    "matches": [
+      {
+        "position": 1,
+        "expected": "C4",
+        "detected": "C4",
+        "match": true
+      },
+      {
+        "position": 2,
+        "expected": "D4",
+        "detected": "D4",
+        "match": true
+      },
+      {
+        "position": 3,
+        "expected": "E4",
+        "detected": "E4",
+        "match": true
+      },
+      {
+        "position": 4,
+        "expected": "F4",
+        "detected": "F4",
+        "match": true
+      },
+      {
+        "position": 5,
+        "expected": "G4",
+        "detected": "G4",
+        "match": true
+      },
+      {
+        "position": 6,
+        "expected": "A4",
+        "detected": "A4",
+        "match": true
+      },
+      {
+        "position": 7,
+        "expected": "B4",
+        "detected": "B4",
+        "match": true
+      },
+      {
+        "position": 8,
+        "expected": "C5",
+        "detected": "C5",
+        "match": true
+      }
+    ],
+    "correct": 8,
+    "accuracy": 100.0,
+    "midi_file": "output/comparison/iter2_ml.mid",
+    "string_fret_info": [
+      {
+        "string": 1,
+        "fret": 3,
+        "midi": 48,
+        "articulation": "hammer_on"
+      },
+      {
+        "string": 4,
+        "fret": 1,
+        "midi": 60,
+        "articulation": "pluck"
+      },
+      {
+        "string": 2,
+        "fret": 0,
+        "midi": 50,
+        "articulation": "pluck"
+      },
+      {
+        "string": 2,
+        "fret": 2,
+        "midi": 52,
+        "articulation": "hammer_on"
+      },
+      {
+        "string": 2,
+        "fret": 3,
+        "midi": 53,
+        "articulation": "pluck"
+      },
+      {
+        "string": 3,
+        "fret": 0,
+        "midi": 55,
+        "articulation": "hammer_on"
+      },
+      {
+        "string": 2,
+        "fret": 5,
+        "midi": 55,
+        "articulation": "pluck"
+      },
+      {
+        "string": 3,
+        "fret": 2,
+        "midi": 57,
+        "articulation": "pluck"
+      },
+      {
+        "string": 3,
+        "fret": 4,
+        "midi": 59,
+        "articulation": "hammer_on"
+      },
+      {
+        "string": 4,
+        "fret": 0,
+        "midi": 59,
+        "articulation": "hammer_on"
+      },
+      {
+        "string": 3,
+        "fret": 5,
+        "midi": 60,
+        "articulation": "pluck"
+      }
+    ],
+    "extra_notes": [
+      "G4",
+      "B4",
+      "C5"
+    ]
+  },
+  "iteration3": {
+    "name": "Iteration 3 (Smart Pipeline)",
+    "short_name": "Smart",
+    "sounding_notes": [
+      "C3",
+      "C4",
+      "D3",
+      "E3",
+      "F3",
+      "G3",
+      "G3",
+      "A3",
+      "B3",
+      "B3",
+      "C4"
+    ],
+    "written_notes": [
+      "C4",
+      "C5",
+      "D4",
+      "E4",
+      "F4",
+      "G4",
+      "G4",
+      "A4",
+      "B4",
+      "B4",
+      "C5"
+    ],
+    "sounding_midi": [
+      48,
+      60,
+      50,
+      52,
+      53,
+      55,
+      55,
+      57,
+      59,
+      59,
+      60
+    ],
+    "written_midi": [
+      60,
+      72,
+      62,
+      64,
+      65,
+      67,
+      67,
+      69,
+      71,
+      71,
+      72
+    ],
+    "note_count": 11,
+    "matches": [
+      {
+        "position": 1,
+        "expected": "C4",
+        "detected": "C4",
+        "match": true
+      },
+      {
+        "position": 2,
+        "expected": "D4",
+        "detected": "D4",
+        "match": true
+      },
+      {
+        "position": 3,
+        "expected": "E4",
+        "detected": "E4",
+        "match": true
+      },
+      {
+        "position": 4,
+        "expected": "F4",
+        "detected": "F4",
+        "match": true
+      },
+      {
+        "position": 5,
+        "expected": "G4",
+        "detected": "G4",
+        "match": true
+      },
+      {
+        "position": 6,
+        "expected": "A4",
+        "detected": "A4",
+        "match": true
+      },
+      {
+        "position": 7,
+        "expected": "B4",
+        "detected": "B4",
+        "match": true
+      },
+      {
+        "position": 8,
+        "expected": "C5",
+        "detected": "C5",
+        "match": true
+      }
+    ],
+    "correct": 8,
+    "accuracy": 100.0,
+    "midi_file": "output/comparison/iter3_smart.mid",
+    "key_detected": "a minor",
+    "key_confidence": 0.720229079501449,
+    "filtered_notes": 0,
+    "raw_notes_count": 11,
+    "extra_notes": [
+      "G4",
+      "B4",
+      "C5"
+    ]
+  }
+}
