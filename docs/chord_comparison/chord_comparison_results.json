@@ -1,0 +1,990 @@
+{
+  "iteration1": {
+    "name": "Iteration 1 (librosa pyin)",
+    "short_name": "pyin",
+    "note_count": 16,
+    "detected_notes": [
+      "E2",
+      "G3",
+      "G\u266f3",
+      "G3",
+      "A2",
+      "E2",
+      "E2",
+      "F2",
+      "F3",
+      "F2",
+      "F3",
+      "F2",
+      "F3",
+      "F2",
+      "F3",
+      "F2"
+    ],
+    "detected_midi": [
+      40,
+      55,
+      56,
+      55,
+      45,
+      40,
+      40,
+      41,
+      53,
+      41,
+      53,
+      41,
+      53,
+      41,
+      53,
+      41
+    ],
+    "metrics": {
+      "tp": 2,
+      "fp": 14,
+      "fn": 12,
+      "precision": 0.125,
+      "recall": 0.14285714285714285,
+      "f1": 0.13333333333333333
+    },
+    "note_matches": [
+      {
+        "gt_onset": 0.0,
+        "gt_midi": 48,
+        "gt_note": "C3",
+        "detected": "MISSING",
+        "match": false
+      },
+      {
+        "gt_onset": 0.0,
+        "gt_midi": 52,
+        "gt_note": "E3",
+        "detected": "MISSING",
+        "match": false
+      },
+      {
+        "gt_onset": 0.0,
+        "gt_midi": 55,
+        "gt_note": "G3",
+        "detected": "MISSING",
+        "match": false
+      },
+      {
+        "gt_onset": 1.7,
+        "gt_midi": 43,
+        "gt_note": "G2",
+        "detected": "MISSING",
+        "match": false
+      },
+      {
+        "gt_onset": 1.7,
+        "gt_midi": 47,
+        "gt_note": "B2",
+        "detected": "MISSING",
+        "match": false
+      },
+      {
+        "gt_onset": 1.7,
+        "gt_midi": 50,
+        "gt_note": "D3",
+        "detected": "MISSING",
+        "match": false
+      },
+      {
+        "gt_onset": 1.7,
+        "gt_midi": 55,
+        "gt_note": "G3",
+        "detected": "MISSING",
+        "match": false
+      },
+      {
+        "gt_onset": 3.4,
+        "gt_midi": 45,
+        "gt_note": "A2",
+        "detected": "A2",
+        "match": true
+      },
+      {
+        "gt_onset": 3.4,
+        "gt_midi": 52,
+        "gt_note": "E3",
+        "detected": "MISSING",
+        "match": false
+      },
+      {
+        "gt_onset": 3.4,
+        "gt_midi": 57,
+        "gt_note": "A3",
+        "detected": "MISSING",
+        "match": false
+      },
+      {
+        "gt_onset": 5.1,
+        "gt_midi": 41,
+        "gt_note": "F2",
+        "detected": "F2",
+        "match": true
+      },
+      {
+        "gt_onset": 5.1,
+        "gt_midi": 45,
+        "gt_note": "A2",
+        "detected": "MISSING",
+        "match": false
+      },
+      {
+        "gt_onset": 5.1,
+        "gt_midi": 48,
+        "gt_note": "C3",
+        "detected": "MISSING",
+        "match": false
+      },
+      {
+        "gt_onset": 5.1,
+        "gt_midi": 53,
+        "gt_note": "F3",
+        "detected": "MISSING",
+        "match": false
+      }
+    ],
+    "extras": [
+      {
+        "onset": 0.22058956916099773,
+        "midi": 40,
+        "note": "E2"
+      },
+      {
+        "onset": 1.8575963718820863,
+        "midi": 55,
+        "note": "G3"
+      },
+      {
+        "onset": 2.2871655328798184,
+        "midi": 56,
+        "note": "G\u266f3"
+      },
+      {
+        "onset": 3.1579138321995464,
+        "midi": 55,
+        "note": "G3"
+      },
+      {
+        "onset": 4.551111111111111,
+        "midi": 40,
+        "note": "E2"
+      },
+      {
+        "onset": 4.6788208616780045,
+        "midi": 40,
+        "note": "E2"
+      },
+      {
+        "onset": 5.990748299319728,
+        "midi": 53,
+        "note": "F3"
+      },
+      {
+        "onset": 7.395555555555555,
+        "midi": 41,
+        "note": "F2"
+      },
+      {
+        "onset": 10.843718820861678,
+        "midi": 53,
+        "note": "F3"
+      },
+      {
+        "onset": 11.15718820861678,
+        "midi": 41,
+        "note": "F2"
+      },
+      {
+        "onset": 11.72607709750567,
+        "midi": 53,
+        "note": "F3"
+      },
+      {
+        "onset": 12.07437641723356,
+        "midi": 41,
+        "note": "F2"
+      },
+      {
+        "onset": 12.60843537414966,
+        "midi": 53,
+        "note": "F3"
+      },
+      {
+        "onset": 13.049614512471654,
+        "midi": 41,
+        "note": "F2"
+      }
+    ],
+    "midi_file": "test/output/chords_iter1.mid"
+  },
+  "iteration2": {
+    "name": "Iteration 2 (CNN+BiGRU ML)",
+    "short_name": "ML",
+    "note_count": 31,
+    "detected_notes": [
+      "C3",
+      "E3",
+      "G3",
+      "C4",
+      "E4",
+      "B2",
+      "D3",
+      "G3",
+      "D4",
+      "G2",
+      "B3",
+      "G4",
+      "A2",
+      "D3",
+      "G3",
+      "E3",
+      "E4",
+      "A3",
+      "A3",
+      "F2",
+      "E3",
+      "F3",
+      "B3",
+      "C4",
+      "E4",
+      "C3",
+      "F\u266f4",
+      "C\u266f3",
+      "A3",
+      "B2",
+      "B3"
+    ],
+    "detected_midi": [
+      48,
+      52,
+      55,
+      60,
+      64,
+      47,
+      50,
+      55,
+      62,
+      43,
+      59,
+      67,
+      45,
+      50,
+      55,
+      52,
+      64,
+      57,
+      57,
+      41,
+      52,
+      53,
+      59,
+      60,
+      64,
+      48,
+      66,
+      49,
+      57,
+      47,
+      59
+    ],
+    "metrics": {
+      "tp": 10,
+      "fp": 21,
+      "fn": 4,
+      "precision": 0.3225806451612903,
+      "recall": 0.7142857142857143,
+      "f1": 0.4444444444444444
+    },
+    "note_matches": [
+      {
+        "gt_onset": 0.0,
+        "gt_midi": 48,
+        "gt_note": "C3",
+        "detected": "C3",
+        "match": true
+      },
+      {
+        "gt_onset": 0.0,
+        "gt_midi": 52,
+        "gt_note": "E3",
+        "detected": "E3",
+        "match": true
+      },
+      {
+        "gt_onset": 0.0,
+        "gt_midi": 55,
+        "gt_note": "G3",
+        "detected": "G3",
+        "match": true
+      },
+      {
+        "gt_onset": 1.7,
+        "gt_midi": 43,
+        "gt_note": "G2",
+        "detected": "MISSING",
+        "match": false
+      },
+      {
+        "gt_onset": 1.7,
+        "gt_midi": 47,
+        "gt_note": "B2",
+        "detected": "B2",
+        "match": true
+      },
+      {
+        "gt_onset": 1.7,
+        "gt_midi": 50,
+        "gt_note": "D3",
+        "detected": "D3",
+        "match": true
+      },
+      {
+        "gt_onset": 1.7,
+        "gt_midi": 55,
+        "gt_note": "G3",
+        "detected": "G3",
+        "match": true
+      },
+      {
+        "gt_onset": 3.4,
+        "gt_midi": 45,
+        "gt_note": "A2",
+        "detected": "A2",
+        "match": true
+      },
+      {
+        "gt_onset": 3.4,
+        "gt_midi": 52,
+        "gt_note": "E3",
+        "detected": "E3",
+        "match": true
+      },
+      {
+        "gt_onset": 3.4,
+        "gt_midi": 57,
+        "gt_note": "A3",
+        "detected": "MISSING",
+        "match": false
+      },
+      {
+        "gt_onset": 5.1,
+        "gt_midi": 41,
+        "gt_note": "F2",
+        "detected": "F2",
+        "match": true
+      },
+      {
+        "gt_onset": 5.1,
+        "gt_midi": 45,
+        "gt_note": "A2",
+        "detected": "MISSING",
+        "match": false
+      },
+      {
+        "gt_onset": 5.1,
+        "gt_midi": 48,
+        "gt_note": "C3",
+        "detected": "MISSING",
+        "match": false
+      },
+      {
+        "gt_onset": 5.1,
+        "gt_midi": 53,
+        "gt_note": "F3",
+        "detected": "F3",
+        "match": true
+      }
+    ],
+    "extras": [
+      {
+        "onset": 0.023219954648526078,
+        "midi": 60,
+        "note": "C4"
+      },
+      {
+        "onset": 0.023219954648526078,
+        "midi": 64,
+        "note": "E4"
+      },
+      {
+        "onset": 1.7647165532879818,
+        "midi": 62,
+        "note": "D4"
+      },
+      {
+        "onset": 1.8808163265306124,
+        "midi": 43,
+        "note": "G2"
+      },
+      {
+        "onset": 1.9504761904761905,
+        "midi": 59,
+        "note": "B3"
+      },
+      {
+        "onset": 2.2291156462585033,
+        "midi": 67,
+        "note": "G4"
+      },
+      {
+        "onset": 3.4133333333333336,
+        "midi": 50,
+        "note": "D3"
+      },
+      {
+        "onset": 3.4133333333333336,
+        "midi": 55,
+        "note": "G3"
+      },
+      {
+        "onset": 3.4365532879818597,
+        "midi": 64,
+        "note": "E4"
+      },
+      {
+        "onset": 5.038730158730159,
+        "midi": 57,
+        "note": "A3"
+      },
+      {
+        "onset": 5.108390022675737,
+        "midi": 57,
+        "note": "A3"
+      },
+      {
+        "onset": 5.131609977324263,
+        "midi": 52,
+        "note": "E3"
+      },
+      {
+        "onset": 5.131609977324263,
+        "midi": 59,
+        "note": "B3"
+      },
+      {
+        "onset": 5.131609977324263,
+        "midi": 60,
+        "note": "C4"
+      },
+      {
+        "onset": 5.131609977324263,
+        "midi": 64,
+        "note": "E4"
+      },
+      {
+        "onset": 5.178049886621316,
+        "midi": 48,
+        "note": "C3"
+      },
+      {
+        "onset": 13.351473922902494,
+        "midi": 66,
+        "note": "F\u266f4"
+      },
+      {
+        "onset": 14.651791383219955,
+        "midi": 49,
+        "note": "C\u266f3"
+      },
+      {
+        "onset": 15.418049886621315,
+        "midi": 57,
+        "note": "A3"
+      },
+      {
+        "onset": 18.088344671201813,
+        "midi": 47,
+        "note": "B2"
+      },
+      {
+        "onset": 18.15800453514739,
+        "midi": 59,
+        "note": "B3"
+      }
+    ],
+    "midi_file": "test/output/chords_iter2.mid",
+    "string_fret_info": [
+      {
+        "string": 1,
+        "fret": 3,
+        "midi": 48,
+        "onset": 0.0
+      },
+      {
+        "string": 2,
+        "fret": 2,
+        "midi": 52,
+        "onset": 0.0
+      },
+      {
+        "string": 3,
+        "fret": 0,
+        "midi": 55,
+        "onset": 0.0
+      },
+      {
+        "string": 4,
+        "fret": 1,
+        "midi": 60,
+        "onset": 0.023219954648526078
+      },
+      {
+        "string": 5,
+        "fret": 0,
+        "midi": 64,
+        "onset": 0.023219954648526078
+      },
+      {
+        "string": 1,
+        "fret": 2,
+        "midi": 47,
+        "onset": 1.7182766439909298
+      },
+      {
+        "string": 2,
+        "fret": 0,
+        "midi": 50,
+        "onset": 1.7182766439909298
+      },
+      {
+        "string": 3,
+        "fret": 0,
+        "midi": 55,
+        "onset": 1.7182766439909298
+      },
+      {
+        "string": 4,
+        "fret": 3,
+        "midi": 62,
+        "onset": 1.7647165532879818
+      },
+      {
+        "string": 0,
+        "fret": 3,
+        "midi": 43,
+        "onset": 1.8808163265306124
+      },
+      {
+        "string": 4,
+        "fret": 0,
+        "midi": 59,
+        "onset": 1.9504761904761905
+      },
+      {
+        "string": 5,
+        "fret": 3,
+        "midi": 67,
+        "onset": 2.2291156462585033
+      },
+      {
+        "string": 1,
+        "fret": 0,
+        "midi": 45,
+        "onset": 3.4133333333333336
+      },
+      {
+        "string": 2,
+        "fret": 0,
+        "midi": 50,
+        "onset": 3.4133333333333336
+      },
+      {
+        "string": 3,
+        "fret": 0,
+        "midi": 55,
+        "onset": 3.4133333333333336
+      },
+      {
+        "string": 2,
+        "fret": 2,
+        "midi": 52,
+        "onset": 3.4365532879818597
+      },
+      {
+        "string": 5,
+        "fret": 0,
+        "midi": 64,
+        "onset": 3.4365532879818597
+      },
+      {
+        "string": 3,
+        "fret": 2,
+        "midi": 57,
+        "onset": 5.038730158730159
+      },
+      {
+        "string": 3,
+        "fret": 2,
+        "midi": 57,
+        "onset": 5.108390022675737
+      },
+      {
+        "string": 0,
+        "fret": 1,
+        "midi": 41,
+        "onset": 5.131609977324263
+      },
+      {
+        "string": 2,
+        "fret": 2,
+        "midi": 52,
+        "onset": 5.131609977324263
+      },
+      {
+        "string": 2,
+        "fret": 3,
+        "midi": 53,
+        "onset": 5.131609977324263
+      },
+      {
+        "string": 4,
+        "fret": 0,
+        "midi": 59,
+        "onset": 5.131609977324263
+      },
+      {
+        "string": 4,
+        "fret": 1,
+        "midi": 60,
+        "onset": 5.131609977324263
+      },
+      {
+        "string": 5,
+        "fret": 0,
+        "midi": 64,
+        "onset": 5.131609977324263
+      },
+      {
+        "string": 1,
+        "fret": 3,
+        "midi": 48,
+        "onset": 5.178049886621316
+      },
+      {
+        "string": 5,
+        "fret": 2,
+        "midi": 66,
+        "onset": 13.351473922902494
+      },
+      {
+        "string": 1,
+        "fret": 4,
+        "midi": 49,
+        "onset": 14.651791383219955
+      },
+      {
+        "string": 3,
+        "fret": 2,
+        "midi": 57,
+        "onset": 15.418049886621315
+      },
+      {
+        "string": 1,
+        "fret": 2,
+        "midi": 47,
+        "onset": 18.088344671201813
+      },
+      {
+        "string": 3,
+        "fret": 4,
+        "midi": 59,
+        "onset": 18.15800453514739
+      }
+    ]
+  },
+  "iteration3": {
+    "name": "Iteration 3 (Smart Pipeline)",
+    "short_name": "Smart",
+    "note_count": 31,
+    "detected_notes": [
+      "C3",
+      "E3",
+      "G3",
+      "C4",
+      "E4",
+      "B2",
+      "D3",
+      "G3",
+      "D4",
+      "G2",
+      "B3",
+      "G4",
+      "A2",
+      "D3",
+      "G3",
+      "E3",
+      "E4",
+      "A3",
+      "A3",
+      "F2",
+      "E3",
+      "F3",
+      "B3",
+      "C4",
+      "E4",
+      "C3",
+      "F\u266f4",
+      "C\u266f3",
+      "A3",
+      "B2",
+      "B3"
+    ],
+    "detected_midi": [
+      48,
+      52,
+      55,
+      60,
+      64,
+      47,
+      50,
+      55,
+      62,
+      43,
+      59,
+      67,
+      45,
+      50,
+      55,
+      52,
+      64,
+      57,
+      57,
+      41,
+      52,
+      53,
+      59,
+      60,
+      64,
+      48,
+      66,
+      49,
+      57,
+      47,
+      59
+    ],
+    "metrics": {
+      "tp": 10,
+      "fp": 21,
+      "fn": 4,
+      "precision": 0.3225806451612903,
+      "recall": 0.7142857142857143,
+      "f1": 0.4444444444444444
+    },
+    "note_matches": [
+      {
+        "gt_onset": 0.0,
+        "gt_midi": 48,
+        "gt_note": "C3",
+        "detected": "C3",
+        "match": true
+      },
+      {
+        "gt_onset": 0.0,
+        "gt_midi": 52,
+        "gt_note": "E3",
+        "detected": "E3",
+        "match": true
+      },
+      {
+        "gt_onset": 0.0,
+        "gt_midi": 55,
+        "gt_note": "G3",
+        "detected": "G3",
+        "match": true
+      },
+      {
+        "gt_onset": 1.7,
+        "gt_midi": 43,
+        "gt_note": "G2",
+        "detected": "MISSING",
+        "match": false
+      },
+      {
+        "gt_onset": 1.7,
+        "gt_midi": 47,
+        "gt_note": "B2",
+        "detected": "B2",
+        "match": true
+      },
+      {
+        "gt_onset": 1.7,
+        "gt_midi": 50,
+        "gt_note": "D3",
+        "detected": "D3",
+        "match": true
+      },
+      {
+        "gt_onset": 1.7,
+        "gt_midi": 55,
+        "gt_note": "G3",
+        "detected": "G3",
+        "match": true
+      },
+      {
+        "gt_onset": 3.4,
+        "gt_midi": 45,
+        "gt_note": "A2",
+        "detected": "A2",
+        "match": true
+      },
+      {
+        "gt_onset": 3.4,
+        "gt_midi": 52,
+        "gt_note": "E3",
+        "detected": "E3",
+        "match": true
+      },
+      {
+        "gt_onset": 3.4,
+        "gt_midi": 57,
+        "gt_note": "A3",
+        "detected": "MISSING",
+        "match": false
+      },
+      {
+        "gt_onset": 5.1,
+        "gt_midi": 41,
+        "gt_note": "F2",
+        "detected": "F2",
+        "match": true
+      },
+      {
+        "gt_onset": 5.1,
+        "gt_midi": 45,
+        "gt_note": "A2",
+        "detected": "MISSING",
+        "match": false
+      },
+      {
+        "gt_onset": 5.1,
+        "gt_midi": 48,
+        "gt_note": "C3",
+        "detected": "MISSING",
+        "match": false
+      },
+      {
+        "gt_onset": 5.1,
+        "gt_midi": 53,
+        "gt_note": "F3",
+        "detected": "F3",
+        "match": true
+      }
+    ],
+    "extras": [
+      {
+        "onset": 0.023219954648526078,
+        "midi": 60,
+        "note": "C4"
+      },
+      {
+        "onset": 0.023219954648526078,
+        "midi": 64,
+        "note": "E4"
+      },
+      {
+        "onset": 1.7647165532879818,
+        "midi": 62,
+        "note": "D4"
+      },
+      {
+        "onset": 1.8808163265306124,
+        "midi": 43,
+        "note": "G2"
+      },
+      {
+        "onset": 1.9504761904761905,
+        "midi": 59,
+        "note": "B3"
+      },
+      {
+        "onset": 2.2291156462585033,
+        "midi": 67,
+        "note": "G4"
+      },
+      {
+        "onset": 3.4133333333333336,
+        "midi": 50,
+        "note": "D3"
+      },
+      {
+        "onset": 3.4133333333333336,
+        "midi": 55,
+        "note": "G3"
+      },
+      {
+        "onset": 3.4365532879818597,
+        "midi": 64,
+        "note": "E4"
+      },
+      {
+        "onset": 5.038730158730159,
+        "midi": 57,
+        "note": "A3"
+      },
+      {
+        "onset": 5.108390022675737,
+        "midi": 57,
+        "note": "A3"
+      },
+      {
+        "onset": 5.131609977324263,
+        "midi": 52,
+        "note": "E3"
+      },
+      {
+        "onset": 5.131609977324263,
+        "midi": 59,
+        "note": "B3"
+      },
+      {
+        "onset": 5.131609977324263,
+        "midi": 60,
+        "note": "C4"
+      },
+      {
+        "onset": 5.131609977324263,
+        "midi": 64,
+        "note": "E4"
+      },
+      {
+        "onset": 5.178049886621316,
+        "midi": 48,
+        "note": "C3"
+      },
+      {
+        "onset": 13.351473922902494,
+        "midi": 66,
+        "note": "F\u266f4"
+      },
+      {
+        "onset": 14.651791383219955,
+        "midi": 49,
+        "note": "C\u266f3"
+      },
+      {
+        "onset": 15.418049886621315,
+        "midi": 57,
+        "note": "A3"
+      },
+      {
+        "onset": 18.088344671201813,
+        "midi": 47,
+        "note": "B2"
+      },
+      {
+        "onset": 18.15800453514739,
+        "midi": 59,
+        "note": "B3"
+      }
+    ],
+    "midi_file": "test/output/chords_iter3.mid",
+    "key_detected": "F major",
+    "key_confidence": 0.689191454677546,
+    "filtered_notes": 0,
+    "raw_notes_count": 31
+  }
+}
