@@ -51,7 +51,7 @@ def gp_to_events(
 
     for measure_idx, measure in enumerate(track.measures):
         header = gp_song.measureHeaders[measure_idx]
-        bpm = header.tempo.value
+        bpm = _resolve_bpm(gp_song, header)
         beat_duration = 60.0 / bpm
 
         for voice in measure.voices:
@@ -59,14 +59,16 @@ def gp_to_events(
             for beat in voice.beats:
                 # Duration: quarter=4 → note_duration_beats = 4/4 = 1 beat
                 note_duration_beats = 4.0 / beat.duration.value
-                if beat.duration.isDotted:
+                if getattr(beat.duration, "isDotted", False):
                     note_duration_beats *= 1.5
-                if beat.duration.isDoubleDotted:
+                if getattr(beat.duration, "isDoubleDotted", False):
                     note_duration_beats *= 1.75
                 # Tuplet
-                if beat.duration.tuplet and beat.duration.tuplet.enters > 0:
+                tuplet = getattr(beat.duration, "tuplet", None)
+                enters = getattr(tuplet, "enters", 0) if tuplet is not None else 0
+                if tuplet is not None and enters > 0:
                     note_duration_beats *= (
-                        beat.duration.tuplet.times / beat.duration.tuplet.enters
+                        tuplet.times / enters
                     )
                 note_duration_sec = note_duration_beats * beat_duration
 
@@ -124,8 +126,8 @@ def gp_to_events(
                 beat_time += note_duration_sec
 
         # Advance by the measure's actual duration
-        ts = header.timeSignature
-        measure_duration = (ts.numerator / ts.denominator.value) * 4 * beat_duration
+        ts_num, ts_den = _resolve_time_signature(header)
+        measure_duration = (ts_num / ts_den) * 4 * beat_duration
         current_time += measure_duration
 
     # Apply let-ring: notes with letRing extend until the next note on same string
@@ -154,6 +156,53 @@ def _apply_let_ring(events: List[dict]) -> List[dict]:
                     group[i]["offset"] = next_onset
 
     return events
+
+
+def _resolve_bpm(gp_song: guitarpro.models.Song, header) -> float:
+    """Resolve tempo robustly across GP versions and PyGuitarPro models."""
+    tempo = getattr(header, "tempo", None)
+    if tempo is not None:
+        value = getattr(tempo, "value", tempo)
+        try:
+            bpm = float(value)
+            if bpm > 0:
+                return bpm
+        except (TypeError, ValueError):
+            pass
+
+    # Fallbacks seen in older/variant GP structures
+    song_tempo = getattr(gp_song, "tempo", None)
+    if song_tempo is not None:
+        value = getattr(song_tempo, "value", song_tempo)
+        try:
+            bpm = float(value)
+            if bpm > 0:
+                return bpm
+        except (TypeError, ValueError):
+            pass
+
+    return 120.0
+
+
+def _resolve_time_signature(header) -> tuple[float, float]:
+    """Return (numerator, denominator) with safe defaults."""
+    ts = getattr(header, "timeSignature", None)
+    if ts is None:
+        return 4.0, 4.0
+
+    num = getattr(ts, "numerator", 4)
+    den_obj = getattr(ts, "denominator", 4)
+    den = getattr(den_obj, "value", den_obj)
+
+    try:
+        num_f = float(num)
+        den_f = float(den)
+        if num_f > 0 and den_f > 0:
+            return num_f, den_f
+    except (TypeError, ValueError):
+        pass
+
+    return 4.0, 4.0
 
 
 # ---------------------------------------------------------------------------
@@ -335,8 +384,8 @@ def ingest_directory(
                 .replace("\\", "_")
             )
 
-            # Average BPM from first measure header
-            bpm = gp_song.measureHeaders[0].tempo.value if gp_song.measureHeaders else 120.0
+            # Use robust resolver to support GP variants where header tempo may be absent
+            bpm = _resolve_bpm(gp_song, gp_song.measureHeaders[0]) if gp_song.measureHeaders else 120.0
 
             # Export MIDI
             midi_path = midi_dir / f"{safe_name}.mid"

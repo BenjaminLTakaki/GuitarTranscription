@@ -3,6 +3,7 @@
 Usage:
     python -m pipeline.run --dadagp-dir DadaGP/ --max-songs 500
     python -m pipeline.run --dadagp-dir DadaGP/ --skip-download --skip-separation
+    python -m pipeline.run --tabs-urls-file pipeline/tab_urls.example.txt --max-tab-urls 100
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import time
 from pathlib import Path
 
 from pipeline.ingest import ingest_directory
+from pipeline.fetch_tabs import fetch_tabs_from_urls
 from pipeline.fetch_audio import search_and_download
 from pipeline.isolate import isolate_guitar
 from pipeline.synthesize_tab import synthesize_midi
@@ -24,7 +26,11 @@ from pipeline.quality import chunk_and_filter
 def run_pipeline(
     dadagp_dir: Path,
     output_dir: Path,
+    tabs_urls_file: Path | None = None,
+    tabs_output_dir: Path | None = None,
+    max_tab_urls: int | None = None,
     max_songs: int | None = None,
+    standard_tuning_only: bool = True,
     quality_threshold: float = 0.5,
     search_suffix: str = "guitar cover",
     skip_download: bool = False,
@@ -36,6 +42,9 @@ def run_pipeline(
     aligned, and chunks_saved.
     """
     stats = {
+        "tabs_processed": 0,
+        "tabs_downloaded": 0,
+        "tabs_extracted": 0,
         "processed": 0,
         "downloaded": 0,
         "separated": 0,
@@ -51,15 +60,36 @@ def run_pipeline(
     synth_dir = output_dir / "synthesized"
     aligned_dir = output_dir / "AlignedDataset"
 
+    ingest_source = dadagp_dir
+
+    # ---- Step 0: Optionally fetch tab files from URL list ----
+    if tabs_urls_file is not None:
+        resolved_tabs_dir = tabs_output_dir or (output_dir / "fetched_tabs")
+        print("\n" + "=" * 60)
+        print("STEP 0: Fetching Guitar Pro tabs")
+        print("=" * 60)
+
+        tab_stats = fetch_tabs_from_urls(
+            urls_file=tabs_urls_file,
+            output_dir=resolved_tabs_dir,
+            max_urls=max_tab_urls,
+        )
+        stats["tabs_processed"] = tab_stats["processed"]
+        stats["tabs_downloaded"] = tab_stats["downloaded"]
+        stats["tabs_extracted"] = tab_stats["extracted"]
+        stats["errors"] += tab_stats["errors"]
+
+        ingest_source = resolved_tabs_dir
+
     # ---- Step 1: Ingest Guitar Pro files ----
     print("\n" + "=" * 60)
     print("STEP 1: Ingesting Guitar Pro files")
     print("=" * 60)
 
     manifest = ingest_directory(
-        dadagp_dir, ingest_dir,
+        ingest_source, ingest_dir,
         max_songs=max_songs,
-        standard_tuning_only=True,
+        standard_tuning_only=standard_tuning_only,
     )
     if not manifest:
         print("No tracks found. Exiting.")
@@ -97,7 +127,14 @@ def run_pipeline(
                     # Rename to match song_id
                     new_path = audio_dl_dir / f"{song_id}.wav"
                     if real_audio != new_path:
-                        real_audio.rename(new_path)
+                        if new_path.exists():
+                            # Reuse existing canonical file on repeated runs
+                            try:
+                                real_audio.unlink(missing_ok=True)
+                            except Exception:
+                                pass
+                        else:
+                            real_audio.rename(new_path)
                         real_audio = new_path
                     stats["downloaded"] += 1
                     time.sleep(2.5)  # rate limiting
@@ -256,7 +293,26 @@ def main():
         "--output-dir", type=Path, default=Path("pipeline_output"),
         help="Output directory for all pipeline artifacts",
     )
+    parser.add_argument(
+        "--tabs-urls-file", type=Path, default=None,
+        help=(
+            "Optional text file with one tab URL per line. "
+            "If provided, tabs are fetched first and used as ingestion input."
+        ),
+    )
+    parser.add_argument(
+        "--tabs-output-dir", type=Path, default=None,
+        help="Where fetched tab files are stored (default: <output-dir>/fetched_tabs)",
+    )
+    parser.add_argument(
+        "--max-tab-urls", type=int, default=None,
+        help="Maximum number of tab URLs to fetch from --tabs-urls-file",
+    )
     parser.add_argument("--max-songs", type=int, default=None)
+    parser.add_argument(
+        "--allow-non-standard-tuning", action="store_true",
+        help="Include guitar tracks that are not in standard EADGBE tuning",
+    )
     parser.add_argument(
         "--quality-threshold", type=float, default=0.5,
         help="Max DTW cost per frame for chunk acceptance (lower = stricter)",
@@ -278,7 +334,11 @@ def main():
     run_pipeline(
         dadagp_dir=args.dadagp_dir,
         output_dir=args.output_dir,
+        tabs_urls_file=args.tabs_urls_file,
+        tabs_output_dir=args.tabs_output_dir,
+        max_tab_urls=args.max_tab_urls,
         max_songs=args.max_songs,
+        standard_tuning_only=not args.allow_non_standard_tuning,
         quality_threshold=args.quality_threshold,
         search_suffix=args.search_suffix,
         skip_download=args.skip_download,

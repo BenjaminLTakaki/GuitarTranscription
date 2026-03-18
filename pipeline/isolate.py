@@ -7,6 +7,7 @@ then resamples to 22050 Hz mono for downstream processing.
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 import librosa
@@ -29,7 +30,7 @@ def isolate_guitar(
     Returns path to the isolated guitar WAV, or None on failure.
     """
     cmd = [
-        "python3", "-m", "demucs",
+        sys.executable, "-m", "demucs",
         "--two-stems", "other",
         "-n", model,
         "--out", str(output_dir),

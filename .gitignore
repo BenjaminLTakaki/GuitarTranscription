@@ -2,23 +2,49 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.py[cod]
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
 
+# Virtual environments
 .venv/
+venv/
 
+# Local editor/OS files
+.DS_Store
+Thumbs.db
+.idea/
+
+# Environment files
+.env
+.env.*
+
+# Generated metadata and features
 *.csv
+*.npy
+
+# Generated audio/MIDI artifacts
 *.mid
+*.midi
+*.wav
+*.mp3
+
+# Project output folders
 output/
+pipeline_output/
 audio/
 GAPS/
-checkpoints/
-SyntheticGuitar_SF2/
-SyntheticGuitar/
+test/output/
+
+# Data and external sources
 GuitarSet/
+DadaGP/
+SyntheticGuitar/
+SyntheticGuitar_SF2/
 tesstset/
 
-# Model checkpoints & cached features — track best_model.pt explicitly via git
-*.npy
-# Ignore epoch checkpoints but keep best
+# Training checkpoints
+checkpoints/
 checkpoint_epoch*.pt

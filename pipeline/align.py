@@ -51,14 +51,18 @@ def align_audio(
         warp_path: (N, 2) array of [real_frame, synth_frame] pairs
         cost: normalized total DTW cost (lower = better alignment)
     """
-    cqt_real = compute_cqt(audio_path=real_audio_path)   # (n_bins, T_real)
-    cqt_synth = compute_cqt(audio_path=synth_audio_path)  # (n_bins, T_synth)
+    cqt_real = _prepare_features(compute_cqt(audio_path=real_audio_path))   # (n_bins, T_real)
+    cqt_synth = _prepare_features(compute_cqt(audio_path=synth_audio_path))  # (n_bins, T_synth)
 
-    # DTW on transposed features: (T, n_bins) for librosa
+    if cqt_real.shape[1] == 0 or cqt_synth.shape[1] == 0:
+        raise ValueError("Empty CQT features for DTW alignment")
+
+    # DTW on features (n_bins, T). Use Euclidean on unit-normalized columns
+    # to avoid cosine NaNs from near-zero vectors.
     D, wp = librosa.sequence.dtw(
         X=cqt_real,
         Y=cqt_synth,
-        metric="cosine",
+        metric="euclidean",
     )
 
     # wp is (N, 2) with [real_frame, synth_frame], reverse-ordered
@@ -69,6 +73,14 @@ def align_audio(
     normalized_cost = total_cost / len(wp)
 
     return wp, normalized_cost
+
+
+def _prepare_features(cqt: np.ndarray) -> np.ndarray:
+    """Sanitize and L2-normalize CQT columns for stable DTW distance."""
+    x = np.nan_to_num(cqt.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+    norms = np.linalg.norm(x, axis=0, keepdims=True)
+    x = x / np.maximum(norms, 1e-8)
+    return x
 
 
 def warp_events(

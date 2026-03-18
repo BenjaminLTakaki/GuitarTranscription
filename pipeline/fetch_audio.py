@@ -6,6 +6,8 @@ using yt-dlp.
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -24,19 +26,25 @@ def search_and_download(
     """
     query = f"{artist} {song_title} {search_suffix}"
     output_template = str(output_dir / "%(id)s.%(ext)s")
+    ffmpeg_location = _resolve_ffmpeg_location()
+    js_runtime = _resolve_js_runtime()
 
     cmd = [
         "yt-dlp",
         f"ytsearch1:{query}",       # first search result
+        "--extractor-args", "youtube:player_skip=js",
         "--extract-audio",
         "--audio-format", "wav",
         "--audio-quality", "0",
         "--postprocessor-args", "-ar 22050 -ac 1",  # 22050 Hz mono
-        "--max-downloads", "1",
         "--no-playlist",
         "--output", output_template,
         "--quiet",
     ]
+    if js_runtime is not None:
+        cmd.extend(["--js-runtimes", js_runtime])
+    if ffmpeg_location is not None:
+        cmd.extend(["--ffmpeg-location", ffmpeg_location])
 
     try:
         result = subprocess.run(
@@ -55,6 +63,39 @@ def search_and_download(
     wav_files = sorted(output_dir.glob("*.wav"), key=lambda p: p.stat().st_mtime)
     if wav_files:
         return wav_files[-1]
+    return None
+
+
+def _resolve_ffmpeg_location() -> str | None:
+    """Return directory containing ffmpeg/ffprobe if found, else None."""
+    ffmpeg = shutil.which("ffmpeg")
+    ffprobe = shutil.which("ffprobe")
+    if ffmpeg and ffprobe:
+        return str(Path(ffmpeg).parent)
+
+    # Common winget install location on Windows
+    localapp = os.environ.get("LOCALAPPDATA")
+    if not localapp:
+        return None
+
+    winget_root = Path(localapp) / "Microsoft" / "WinGet" / "Packages"
+    if not winget_root.exists():
+        return None
+
+    for pkg_dir in winget_root.glob("Gyan.FFmpeg*"):
+        bin_candidates = list(pkg_dir.glob("**/bin"))
+        for bin_dir in bin_candidates:
+            if (bin_dir / "ffmpeg.exe").exists() and (bin_dir / "ffprobe.exe").exists():
+                return str(bin_dir)
+
+    return None
+
+
+def _resolve_js_runtime() -> str | None:
+    """Pick the best available JavaScript runtime for yt-dlp."""
+    for candidate in ("node", "deno", "bun"):
+        if shutil.which(candidate):
+            return candidate
     return None
 
 
