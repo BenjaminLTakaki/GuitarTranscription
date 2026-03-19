@@ -297,13 +297,25 @@ def predict(audio_path: Path, checkpoint_path: Path, device: torch.device):
         model = GuitarTranscriptionModelV2().to(device)
     else:
         model = GuitarTranscriptionModel().to(device)
-    model.load_state_dict(ckpt["model_state_dict"])
+
+    # Detect missing/unexpected keys (e.g. articulation_head added after checkpoint was saved)
+    saved_keys = set(ckpt["model_state_dict"].keys())
+    model_keys = set(model.state_dict().keys())
+    has_art = "articulation_head.0.weight" in saved_keys
+    if saved_keys != model_keys:
+        model.load_state_dict(ckpt["model_state_dict"], strict=False)
+    else:
+        model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
 
-    frame_logits, onset_logits, art_logits = model(mel_t)
+    outputs = model(mel_t)
+    frame_logits, onset_logits = outputs[0], outputs[1]
     frame_prob = torch.sigmoid(frame_logits).squeeze(0).cpu().numpy()  # (T, P)
     onset_prob = torch.sigmoid(onset_logits).squeeze(0).cpu().numpy()
-    art_prob = torch.sigmoid(art_logits).squeeze(0).cpu().numpy()      # (T, P)
+
+    art_prob = None
+    if has_art and len(outputs) > 2:
+        art_prob = torch.sigmoid(outputs[2]).squeeze(0).cpu().numpy()
 
     return frame_prob, onset_prob, art_prob
 
