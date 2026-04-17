@@ -359,7 +359,7 @@ def main():
         raise FileNotFoundError(f"Audio file not found: {args.audio_file}")
 
     # ── Step 1: pitch detection ──────────────────────────────────────────────
-    print(f"\n[1/4] Detecting pitches with backend: {args.backend!r}")
+    print(f"\n[1/5] Detecting pitches with backend: {args.backend!r}")
     backend_fn = BACKENDS[args.backend]
     try:
         raw_notes = backend_fn(args.audio_file)
@@ -370,8 +370,17 @@ def main():
 
     print(f"  Raw notes detected: {len(raw_notes)}")
 
+    # ── Step 1.5: tempo detection + rhythmic quantization ──────────────────
+    from model.quantize import detect_tempo, quantize_notes
+
+    print("\n[1.5/5] Detecting tempo and quantizing...")
+    bpm = detect_tempo(str(args.audio_file))
+    print(f"  Detected tempo: {bpm:.1f} BPM")
+    raw_notes = quantize_notes(raw_notes, bpm, grid_subdivision=16)
+    print(f"  Notes quantized to 16th-note grid at {bpm:.1f} BPM")
+
     # ── Step 2: music21 brain ────────────────────────────────────────────────
-    print("\n[2/4] Running music21 analysis...")
+    print("\n[2/5] Running music21 analysis...")
     m21_stream = build_music21_stream(raw_notes)
     detected_key = detect_key(m21_stream)
     print(f"  Detected key : {detected_key} (confidence: {detected_key.correlationCoefficient:.3f})")
@@ -389,13 +398,13 @@ def main():
         print(f"  Chord events : {len(chord_labels)}")
 
     # ── Step 3: fingering assignment ─────────────────────────────────────────
-    print("\n[3/4] Optimising guitar fingering...")
+    print("\n[3/5] Optimising guitar fingering...")
     fingered_notes = assign_fingering(refined_notes)
     print(f"  Notes with fingering: {len(fingered_notes)}")
 
     # ── Step 4: output ───────────────────────────────────────────────────────
-    print(f"\n[4/4] Writing output...")
-    write_midi(fingered_notes, args.output)
+    print(f"\n[4/5] Writing output...")
+    write_midi(fingered_notes, args.output, bpm=int(round(bpm)))
     print(f"  MIDI saved -> {args.output}")
 
     # ── Summary ──────────────────────────────────────────────────────────────

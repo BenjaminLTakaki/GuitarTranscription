@@ -46,7 +46,7 @@ SUSTAIN_THRESHOLD = 0.10   # confidence required to SUSTAIN an already-active no
 # Minimum silence gap (frames) — if an onset fires while a note is active on the
 # same pitch, the old note is ended and a new one begins. This constant sets the
 # minimum number of frames a note must last before it can be re-articulated.
-MIN_NOTE_FRAMES = 2
+MIN_NOTE_FRAMES = 4
 
 # Paths (relative to project root)
 GAPS_DIR = "GAPS"

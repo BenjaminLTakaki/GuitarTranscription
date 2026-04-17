@@ -37,8 +37,11 @@ comping performances with per-string JAMS annotations).
 ### Setup
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+python -m venv .venv
+# Windows (PowerShell)
+.venv\Scripts\Activate.ps1
+# macOS/Linux
+# source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -120,6 +123,83 @@ Checkpoints are saved to `checkpoints/`. The best model (by test F1) is
 python -m model.predict path/to/guitar.wav -o output/transcription_ml.mid
 ```
 
+## Alignment Data Collection Pipeline (Tab + Audio -> Aligned Chunks)
+
+This pipeline builds aligned training chunks by:
+1. Ingesting Guitar Pro tab files (.gp/.gp3/.gp4/.gp5/.gpx)
+2. Downloading matching audio from YouTube
+3. Isolating guitar stem with Demucs
+4. Synthesizing tab audio reference (FluidSynth when available, fallback synth otherwise)
+5. Aligning real audio to synthesized reference with DTW
+6. Warping note events and exporting quality-filtered chunks
+
+### Option A - Use Local Guitar Pro Files
+
+```bash
+# Example: clone DadaGP as tab source
+git clone https://github.com/dada-bots/dadaGP.git DadaGP
+
+# Run collection
+python -m pipeline.run \
+  --dadagp-dir DadaGP \
+  --output-dir pipeline_output \
+  --max-songs 10 \
+  --allow-non-standard-tuning
+```
+
+### Option B - Fetch Tabs From URL List First
+
+Put one URL per line in `pipeline/tab_urls.example.txt` (or your own file).
+
+```bash
+python -m pipeline.run \
+  --tabs-urls-file pipeline/tab_urls.example.txt \
+  --output-dir pipeline_output \
+  --max-tab-urls 50 \
+  --max-songs 50
+```
+
+### Useful Flags
+
+```bash
+--allow-non-standard-tuning   # keep tracks not in standard EADGBE
+--skip-download               # reuse existing audio in pipeline_output/downloaded_audio
+--skip-separation             # reuse existing stems or fallback to raw audio
+--quality-threshold 0.5       # lower = stricter chunk filtering
+--search-suffix "guitar cover"
+```
+
+### Windows Notes
+
+- Install FFmpeg so `yt-dlp` can extract WAV audio:
+
+```powershell
+winget install --id Gyan.FFmpeg --accept-package-agreements --accept-source-agreements
+```
+
+- Collection scripts now auto-detect Windows/Linux runtime differences for:
+  `yt-dlp` JS runtime selection, `ffmpeg` discovery, and Demucs invocation.
+
+- If no SoundFont is available, the pipeline falls back to an internal sine-wave
+  synth for DTW reference generation so collection can still proceed.
+
+- To force a specific SoundFont, set one of these env vars before running:
+
+```powershell
+$env:GUITAR_SF2_PATH = "C:\path\to\your\soundfont.sf2"
+# or
+$env:SOUNDFONT_PATH = "C:\path\to\your\soundfont.sf2"
+```
+
+### Outputs
+
+- `pipeline_output/ingested/manifest.csv` - exported tab metadata
+- `pipeline_output/downloaded_audio/` - downloaded WAV audio
+- `pipeline_output/separated/` - Demucs stems
+- `pipeline_output/synthesized/` - synthesized reference WAVs
+- `pipeline_output/AlignedDataset/` - final aligned chunks
+- `pipeline_output/pipeline_results.csv` - per-track run summary
+
 ### Project structure
 
 ```
@@ -135,6 +215,16 @@ model/
   evaluate.py               ← Frame-level & note-level metrics
   train.py                  ← Training loop with checkpointing
   predict.py                ← Inference: audio → MIDI
+pipeline/
+  fetch_tabs.py             ← Optional tab URL downloader (GP files + archives)
+  ingest.py                 ← GP tab parsing/export to MIDI+JAMS
+  fetch_audio.py            ← YouTube audio retrieval via yt-dlp
+  isolate.py                ← Demucs guitar stem isolation
+  synthesize_tab.py         ← MIDI reference synthesis (FluidSynth + fallback)
+  align.py                  ← DTW alignment + timestamp warping
+  quality.py                ← Chunk quality filtering/export
+  run.py                    ← End-to-end orchestrator
 checkpoints/                ← Saved model weights (created by train.py)
 output/                     ← Generated MIDI files
+pipeline_output/            ← Collection/alignment artifacts
 ```

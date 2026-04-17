@@ -6,8 +6,13 @@ realistic training data than the Karplus-Strong synthesiser.
 
 Prerequisites
 -------------
-Install fluidsynth from a real (non-Flatpak) host terminal:
+Install fluidsynth and ensure it is on PATH.
+
+Linux example:
     sudo apt install fluidsynth
+
+Windows example:
+    install FluidSynth and reopen your terminal
 
 Then run from VS Code's terminal as normal:
     python generate_sf2.py --num-tracks 500 --duration 30
@@ -16,12 +21,20 @@ Output layout matches GuitarSet so the existing dataset loader works:
     SyntheticGuitar_SF2/
         annotation/*.jams
         audio_mono-mic/*_mic.wav
+
+SoundFont auto-discovery
+------------------------
+- Uses GUITAR_SF2_PATH / SOUNDFONT_PATH when set
+- Checks common Linux and Windows SoundFont locations
+- Falls back to --soundfont if explicitly provided
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import platform
 import random
 import shutil
 import struct
@@ -51,15 +64,7 @@ NUM_FRETS = 21  # 0–20
 # 26 = Electric Jazz Guitar   27 = Electric Clean Guitar  28 = Electric Muted
 _GUITAR_PROGRAMS = [24, 25, 26, 27, 28]
 
-# Candidate SoundFont paths — listed as (sandbox_path, host_path) pairs.
-# When running via flatpak-spawn --host, the host path is passed to the CLI
-# because /run/host/... does not exist from the host's perspective.
-_SOUNDFONT_SEARCH = [
-    (Path("/run/host/usr/share/sounds/sf2/TimGM6mb.sf2"),  Path("/usr/share/sounds/sf2/TimGM6mb.sf2")),
-    (Path("/run/host/usr/share/sounds/sf2/default-GM.sf2"), Path("/usr/share/sounds/sf2/default-GM.sf2")),
-    (Path("/usr/share/sounds/sf2/TimGM6mb.sf2"),           Path("/usr/share/sounds/sf2/TimGM6mb.sf2")),
-    (Path("/usr/share/sounds/sf2/default-GM.sf2"),          Path("/usr/share/sounds/sf2/default-GM.sf2")),
-]
+_IS_WINDOWS = platform.system().lower().startswith("win")
 
 # Flatpak sandbox: the fluidsynth binary lives on the host, not inside VS Code
 _FLUIDSYNTH_CMD: list[str] | None = None  # resolved lazily by _get_fluidsynth()
@@ -77,6 +82,10 @@ def _get_fluidsynth() -> list[str]:
         _FLUIDSYNTH_CMD = ["fluidsynth"]
         return _FLUIDSYNTH_CMD
 
+    if _IS_WINDOWS and shutil.which("fluidsynth.exe"):
+        _FLUIDSYNTH_CMD = ["fluidsynth.exe"]
+        return _FLUIDSYNTH_CMD
+
     # VS Code Flatpak sandbox — escape to host via flatpak-spawn
     if shutil.which("flatpak-spawn"):
         result = subprocess.run(
@@ -91,10 +100,53 @@ def _get_fluidsynth() -> list[str]:
 
     raise RuntimeError(
         "fluidsynth not found.\n"
-        "Install it from a real (non-VS Code) terminal:\n"
-        "  sudo apt install fluidsynth\n"
+        "Install it in your OS and ensure it is on PATH.\n"
+        "Linux:   sudo apt install fluidsynth\n"
+        "Windows: install FluidSynth and reopen terminal\n"
         "Then re-run this script."
     )
+
+
+def _soundfont_candidates() -> list[tuple[Path, Path]]:
+    """Return candidate (sandbox_path, host_path) pairs by platform."""
+    candidates: list[tuple[Path, Path]] = []
+
+    # Highest-priority overrides
+    for env_name in ("GUITAR_SF2_PATH", "SOUNDFONT_PATH"):
+        value = os.environ.get(env_name)
+        if value:
+            p = Path(value)
+            candidates.append((p, p))
+
+    if _IS_WINDOWS:
+        localapp = os.environ.get("LOCALAPPDATA", "")
+        program_files = os.environ.get("PROGRAMFILES", "")
+        user_profile = os.environ.get("USERPROFILE", "")
+        windows_candidates = [
+            Path(localapp) / "MuseScore" / "MuseScore4" / "SoundFonts" / "MuseScore_General.sf2",
+            Path(localapp) / "MuseScore" / "MuseScore4" / "SoundFonts" / "FluidR3Mono_GM.sf3",
+            Path(program_files) / "MuseScore 4" / "sound" / "MuseScore_General.sf3",
+            Path(user_profile) / "soundfonts" / "TimGM6mb.sf2",
+            Path(user_profile) / "soundfonts" / "default-GM.sf2",
+            Path("soundfonts") / "TimGM6mb.sf2",
+            Path("soundfonts") / "default-GM.sf2",
+        ]
+        for p in windows_candidates:
+            candidates.append((p, p))
+    else:
+        # Candidate SoundFont paths — listed as (sandbox_path, host_path) pairs.
+        # When running via flatpak-spawn --host, the host path is passed to the CLI
+        # because /run/host/... does not exist from the host's perspective.
+        linux_candidates = [
+            (Path("/run/host/usr/share/sounds/sf2/TimGM6mb.sf2"), Path("/usr/share/sounds/sf2/TimGM6mb.sf2")),
+            (Path("/run/host/usr/share/sounds/sf2/default-GM.sf2"), Path("/usr/share/sounds/sf2/default-GM.sf2")),
+            (Path("/usr/share/sounds/sf2/TimGM6mb.sf2"), Path("/usr/share/sounds/sf2/TimGM6mb.sf2")),
+            (Path("/usr/share/sounds/sf2/default-GM.sf2"), Path("/usr/share/sounds/sf2/default-GM.sf2")),
+            (Path.home() / ".local" / "share" / "soundfonts" / "TimGM6mb.sf2", Path.home() / ".local" / "share" / "soundfonts" / "TimGM6mb.sf2"),
+        ]
+        candidates.extend(linux_candidates)
+
+    return candidates
 
 
 def _get_soundfont() -> tuple[Path, Path]:
@@ -103,12 +155,13 @@ def _get_soundfont() -> tuple[Path, Path]:
     sandbox_path is used to check existence (visible inside Flatpak).
     host_path is what gets passed to the fluidsynth CLI on the host.
     """
-    for sandbox_p, host_p in _SOUNDFONT_SEARCH:
+    candidates = _soundfont_candidates()
+    for sandbox_p, host_p in candidates:
         if sandbox_p.exists():
             return sandbox_p, host_p
     raise RuntimeError(
         f"No SoundFont file found. Searched:\n"
-        + "\n".join(f"  {sp}" for sp, _ in _SOUNDFONT_SEARCH)
+        + "\n".join(f"  {sp}" for sp, _ in candidates)
     )
 
 
@@ -159,9 +212,10 @@ def generate_single_notes(duration: float, bpm: float) -> List[dict]:
         string, fret = pos
         dur = random.choice([0.25, 0.5, 0.5, 1.0, 1.0, 2.0]) * beat
         dur = max(0.08, min(dur, duration - t))
-        vel = int(random.uniform(50, 110))
+        vel = int(max(30, min(127, random.uniform(50, 110) + random.gauss(0, 8))))
+        jittered_onset = max(0.0, t + random.gauss(0, 0.012))
         events.append({"string": string, "fret": fret, "midi": midi,
-                        "onset": t, "duration": dur, "velocity": vel})
+                        "onset": jittered_onset, "duration": dur, "velocity": vel})
         t += dur + random.uniform(0.0, 0.15) * (random.random() < 0.5)
     return events
 
@@ -189,9 +243,10 @@ def generate_chords(duration: float, bpm: float) -> List[dict]:
                 break
             midi = GUITAR_TUNING[rel_s] + f
             note_dur = max(0.1, min(chord_dur - i * strum_delay, duration - onset))
-            vel = int(random.uniform(55, 110))
+            vel = int(max(30, min(127, random.uniform(55, 110) + random.gauss(0, 8))))
+            jittered_onset = max(0.0, onset + random.gauss(0, 0.012))
             events.append({"string": rel_s, "fret": f, "midi": midi,
-                            "onset": onset, "duration": note_dur, "velocity": vel})
+                            "onset": jittered_onset, "duration": note_dur, "velocity": vel})
         t += chord_dur + random.uniform(0.0, 0.1)
         idx += 1
     return events
@@ -221,9 +276,10 @@ def generate_arpeggios(duration: float, bpm: float) -> List[dict]:
                 continue
             midi = GUITAR_TUNING[rel_s] + f
             ring = min(random.uniform(note_dur, note_dur * 4), duration - t)
-            vel = int(random.uniform(45, 95))
+            vel = int(max(30, min(127, random.uniform(45, 95) + random.gauss(0, 8))))
+            jittered_onset = max(0.0, t + random.gauss(0, 0.012))
             events.append({"string": rel_s, "fret": f, "midi": midi,
-                            "onset": t, "duration": ring, "velocity": vel})
+                            "onset": jittered_onset, "duration": ring, "velocity": vel})
             t += note_dur
         t += random.uniform(0.0, beat)
     return events

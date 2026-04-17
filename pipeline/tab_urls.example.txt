@@ -1,0 +1,7 @@
+# One URL per line. Supported:
+# - Direct Guitar Pro files: .gp .gp3 .gp4 .gp5 .gpx
+# - Archives containing GP files: .zip .tar .tar.gz .tgz
+#
+# Example (replace with your own legal/public links):
+# https://example.com/tabs/song_a.gp5
+# https://example.com/tabs/collection.zip

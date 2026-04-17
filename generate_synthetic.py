@@ -98,6 +98,9 @@ def karplus_strong(
     if decay_factor is None:
         decay_factor = random.uniform(0.994, 0.9999)
 
+    # Pitch drift: simulate imperfect tuning / string intonation
+    frequency *= (1 + random.gauss(0, 0.002))
+
     n_samples = int(sr * duration)
     delay_len = max(2, int(round(sr / frequency)))
 
@@ -208,6 +211,36 @@ def augment_audio(audio: np.ndarray, sr: int = SAMPLE_RATE) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
+# Fret squeak synthesis
+# ---------------------------------------------------------------------------
+
+def _generate_fret_squeak(duration: float, sr: int = SAMPLE_RATE) -> np.ndarray:
+    """Generate a short band-passed noise burst mimicking finger slide on strings.
+
+    Real guitar recordings contain these squeaks when the fretting hand
+    slides between distant fret positions.
+    """
+    from scipy.signal import butter, lfilter
+
+    n_samples = int(sr * duration)
+    noise = np.random.randn(n_samples).astype(np.float32)
+    # Band-pass 2000-5000 Hz
+    nyq = sr / 2.0
+    low = 2000.0 / nyq
+    high = min(5000.0 / nyq, 0.99)
+    b, a = butter(2, [low, high], btype="band")
+    squeak = lfilter(b, a, noise).astype(np.float32)
+    # Envelope: quick fade-in/out
+    env = np.ones(n_samples, dtype=np.float32)
+    fade = min(int(0.005 * sr), n_samples // 4)
+    if fade > 0:
+        env[:fade] = np.linspace(0, 1, fade)
+        env[-fade:] = np.linspace(1, 0, fade)
+    squeak *= env
+    return squeak
+
+
+# ---------------------------------------------------------------------------
 # Musical pattern generators
 # ---------------------------------------------------------------------------
 
@@ -238,6 +271,7 @@ def generate_single_notes(
     scale_name = random.choice(list(_SCALE_PATTERNS.keys()))
     intervals = _SCALE_PATTERNS[scale_name]
     root_midi = random.randint(40, 60)  # E2 to C4
+    prev_fret: int | None = None
 
     while t < duration - 0.1:
         # Choose note from scale
@@ -258,11 +292,28 @@ def generate_single_notes(
         note_dur = max(note_dur, 0.08)
 
         velocity = random.uniform(0.4, 1.0)
+        # Velocity variance (Gaussian centered on intended velocity)
+        velocity = max(0.24, min(1.0, velocity + random.gauss(0, 8 / 127)))
+        # Microtiming jitter
+        jittered_onset = max(0.0, t + random.gauss(0, 0.012))
+
+        # Fret squeak: insert noise burst when fret jumps > 3
+        if prev_fret is not None and abs(fret - prev_fret) > 3:
+            squeak_dur = random.uniform(0.030, 0.080)
+            squeak_onset = max(0.0, jittered_onset - squeak_dur)
+            events.append({
+                "string": string, "fret": fret, "midi": note_midi,
+                "onset": squeak_onset, "duration": squeak_dur,
+                "velocity": random.uniform(0.05, 0.15),
+                "_squeak": True,
+            })
+        prev_fret = fret
+
         events.append({
             "string": string,
             "fret": fret,
             "midi": note_midi,
-            "onset": t,
+            "onset": jittered_onset,
             "duration": note_dur,
             "velocity": velocity,
         })
@@ -324,14 +375,18 @@ def generate_chords(
                 break
 
             velocity = random.uniform(0.5, 1.0)
+            # Velocity variance
+            velocity = max(0.24, min(1.0, velocity + random.gauss(0, 8 / 127)))
             note_dur = max(0.1, chord_dur - i * strum_delay)
             note_dur = min(note_dur, duration - note_onset)
+            # Microtiming jitter
+            jittered_onset = max(0.0, note_onset + random.gauss(0, 0.012))
 
             events.append({
                 "string": s,
                 "fret": f,
                 "midi": midi,
-                "onset": note_onset,
+                "onset": jittered_onset,
                 "duration": note_dur,
                 "velocity": velocity,
             })
@@ -386,11 +441,15 @@ def generate_arpeggios(
             ring_dur = min(ring_dur, duration - t)
 
             velocity = random.uniform(0.4, 0.9)
+            # Velocity variance
+            velocity = max(0.24, min(1.0, velocity + random.gauss(0, 8 / 127)))
+            # Microtiming jitter
+            jittered_onset = max(0.0, t + random.gauss(0, 0.012))
             events.append({
                 "string": s,
                 "fret": f,
                 "midi": midi,
-                "onset": t,
+                "onset": jittered_onset,
                 "duration": ring_dur,
                 "velocity": velocity,
             })
@@ -454,12 +513,16 @@ def generate_hammer_ons(
         note_dur = max(note_dur, 0.08)
 
         velocity = random.uniform(0.3, 0.7) if is_hammer else random.uniform(0.5, 1.0)
+        # Velocity variance
+        velocity = max(0.24, min(1.0, velocity + random.gauss(0, 8 / 127)))
+        # Microtiming jitter
+        jittered_onset = max(0.0, t + random.gauss(0, 0.012))
 
         events.append({
             "string": string,
             "fret": fret,
             "midi": note_midi,
-            "onset": t,
+            "onset": jittered_onset,
             "duration": note_dur,
             "velocity": velocity,
             "articulation": "hammer_on" if is_hammer else "pluck",
@@ -484,6 +547,7 @@ def generate_mixed_pattern(duration: float, bpm: float) -> List[dict]:
     events = []
     t = 0.0
     generators = [generate_single_notes, generate_chords, generate_arpeggios, generate_hammer_ons]
+    prev_fret: int | None = None
 
     while t < duration:
         section_dur = random.uniform(3.0, min(10.0, duration - t))
@@ -494,7 +558,25 @@ def generate_mixed_pattern(duration: float, bpm: float) -> List[dict]:
         # Shift onsets by current position
         for e in section_events:
             e["onset"] += t
+
+        # Fret squeak between sections
+        if prev_fret is not None and section_events:
+            first_fret = section_events[0].get("fret", 0)
+            if abs(first_fret - prev_fret) > 3:
+                squeak_dur = random.uniform(0.030, 0.080)
+                squeak_onset = max(0.0, section_events[0]["onset"] - squeak_dur)
+                events.append({
+                    "string": section_events[0].get("string", 0),
+                    "fret": first_fret,
+                    "midi": section_events[0].get("midi", 40),
+                    "onset": squeak_onset, "duration": squeak_dur,
+                    "velocity": random.uniform(0.05, 0.15),
+                    "_squeak": True,
+                })
+
         events.extend(section_events)
+        if section_events:
+            prev_fret = section_events[-1].get("fret", prev_fret)
         t += section_dur + random.uniform(0.1, 0.5)
 
     return events
@@ -519,6 +601,19 @@ def render_events(
     base_decay = random.uniform(0.995, 0.9999)
 
     for ev in events:
+        start_sample = int(ev["onset"] * sr)
+        if start_sample >= n_samples:
+            continue
+
+        # Fret squeak events: render band-passed noise instead of pitched audio
+        if ev.get("_squeak"):
+            squeak_audio = _generate_fret_squeak(ev["duration"], sr)
+            squeak_audio *= ev["velocity"]
+            end_sample = start_sample + len(squeak_audio)
+            end_sample = min(end_sample, n_samples)
+            audio[start_sample:end_sample] += squeak_audio[: end_sample - start_sample]
+            continue
+
         freq = _midi_to_hz(ev["midi"])
         # Per-note variation
         brightness = np.clip(base_brightness + random.uniform(-0.1, 0.1), 0.1, 0.99)
@@ -543,10 +638,7 @@ def render_events(
         note_audio *= ev["velocity"]
 
         # Mix into output
-        start_sample = int(ev["onset"] * sr)
         end_sample = start_sample + len(note_audio)
-        if start_sample >= n_samples:
-            continue
         end_sample = min(end_sample, n_samples)
         audio[start_sample:end_sample] += note_audio[: end_sample - start_sample]
 
@@ -593,8 +685,8 @@ def events_to_jams(
             "duration": duration,
         })
 
-        # note_midi observations for this string
-        string_notes = [e for e in events if e["string"] == string_idx]
+        # note_midi observations for this string (exclude squeaks)
+        string_notes = [e for e in events if e["string"] == string_idx and not e.get("_squeak")]
         string_notes.sort(key=lambda e: e["onset"])
 
         obs_list = []
@@ -627,6 +719,8 @@ def events_to_jams(
     # ---- articulation annotation (one for entire track) -----
     art_obs = []
     for e in events:
+        if e.get("_squeak"):
+            continue
         art_label = e.get("articulation", "pluck")
         art_obs.append({
             "time": e["onset"],

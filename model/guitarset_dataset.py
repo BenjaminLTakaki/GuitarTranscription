@@ -361,4 +361,15 @@ class GuitarSetDataset(Dataset):
             start = random.randint(0, T - width)
             spec[:, start : start + width] = 0.0
 
+        # 4. Bass boost augmentation — strengthen low CQT bins
+        if random.random() < 0.4:
+            boost_db = random.uniform(1.5, 4.0)  # dB boost
+            boost_factor = 10 ** (boost_db / 20)
+            # Apply to bottom ~36 bins (roughly E2-E4 range in 144-bin CQT)
+            n_boost = min(36, n_bins)
+            # Gradual rolloff so it's not a hard cutoff
+            boost_curve = np.linspace(boost_factor, 1.0, n_boost)
+            spec[:n_boost, :] *= boost_curve[:, np.newaxis]
+            spec = np.clip(spec, 0.0, 1.0)
+
         return spec
