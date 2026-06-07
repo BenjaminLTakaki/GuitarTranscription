@@ -38,6 +38,9 @@ audio/
 GAPS/
 test/output/
 
+# Third-party models (large, downloaded by setup scripts)
+third_party/YourMT3/
+
 # Data and external sources
 GuitarSet/
 DadaGP/

@@ -37,8 +37,11 @@ async def list_checkpoints():
     if not ckpt_dir.exists():
         return {"checkpoints": []}
 
+    allowed = {"best_model_v1.pt", "best_model_v2.pt"}
     results = []
     for pt in sorted(ckpt_dir.glob("*.pt")):
+        if pt.name not in allowed:
+            continue
         try:
             ckpt = torch.load(pt, map_location="cpu", weights_only=True)
             results.append({

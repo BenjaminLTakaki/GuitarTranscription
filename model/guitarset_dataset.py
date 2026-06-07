@@ -10,6 +10,7 @@ from typing import List, Tuple
 import librosa
 import numpy as np
 import torch
+from scipy.ndimage import zoom
 from torch.utils.data import Dataset
 
 from model.constants import (
@@ -194,11 +195,15 @@ def articulation_events_to_roll(
 #   Validation on player 04 (~60 clips)
 #   Test on player 05 (~60 clips)
 _SPLIT_PLAYERS = {
-    "train": {"00", "01", "02", "03"},
-    "val":   {"04"},
-    "test":  {"05"},
-    "all":   None,  # No filtering — use every track (for synthetic data)
+    "train":    {"00", "01", "02", "03"},
+    "trainval": {"00", "01", "02", "03", "04"},  # train + val; use test set for model selection
+    "val":      {"04"},
+    "test":     {"05"},
+    "all":      None,  # No filtering — use every track (for synthetic data)
 }
+
+# CQT bins per semitone (CQT_BINS_PER_OCTAVE=24, 12 semitones/octave → 2 bins/semitone)
+_BINS_PER_SEMITONE = 2
 
 
 class GuitarSetDataset(Dataset):
@@ -228,29 +233,36 @@ class GuitarSetDataset(Dataset):
         self.root = Path(root)
         self.split = split
         self.segment_duration = segment_duration
-        self.augment = augment and (split == "train")
-
-        ann_dir = self.root / "annotation"
-        audio_dir = self.root / "audio_mono-mic"
+        self.augment = augment and (split in ("train", "trainval", "all"))
 
         if split not in _SPLIT_PLAYERS:
-            raise ValueError(f"Unknown split '{split}', expected train/val/test/all")
+            raise ValueError(f"Unknown split '{split}', expected train/trainval/val/test/all")
         allowed_players = _SPLIT_PLAYERS[split]  # None means accept all
 
-        # Discover pairs of (audio, jams) by scanning the annotation dir
-        self.items: List[dict] = []
-        if not ann_dir.exists():
-            print(f"WARNING: annotation dir not found: {ann_dir}")
-            return
+        ann_dir   = self.root / "annotation"
+        audio_dir = self.root / "audio_mono-mic"
 
-        for jams_path in sorted(ann_dir.glob("*.jams")):
+        # Support two layouts:
+        #   Subdirectory layout:  root/annotation/*.jams + root/audio_mono-mic/*_mic.wav
+        #   Flat layout:          root/*.jams            + root/*_mic.wav  (downloaded by benchmark)
+        self.items: List[dict] = []
+
+        if ann_dir.exists():
+            jams_glob  = sorted(ann_dir.glob("*.jams"))
+            audio_base = audio_dir
+        else:
+            # Flat layout — all files directly in root/
+            jams_glob  = sorted(self.root.glob("*.jams"))
+            audio_base = self.root
+
+        for jams_path in jams_glob:
             if allowed_players is not None:
                 player_id = jams_path.stem.split("_")[0]  # e.g. "00"
                 if player_id not in allowed_players:
                     continue
 
             # Corresponding audio: same stem + "_mic.wav"
-            audio_path = audio_dir / (jams_path.stem + "_mic.wav")
+            audio_path = audio_base / (jams_path.stem + "_mic.wav")
             if not audio_path.exists():
                 continue
 
@@ -298,7 +310,7 @@ class GuitarSetDataset(Dataset):
         art_roll = articulation_events_to_roll(art_events, total_frames)
 
         # Crop or pad to fixed segment length during training
-        if self.split in ("train", "all"):
+        if self.split in ("train", "trainval", "all"):
             seg_frames = SEGMENT_FRAMES
             if total_frames > seg_frames:
                 start = random.randint(0, total_frames - seg_frames)
@@ -317,8 +329,22 @@ class GuitarSetDataset(Dataset):
                 onset_roll = np.pad(onset_roll, ((0, pad_w), (0, 0)))
                 art_roll = np.pad(art_roll, ((0, pad_w), (0, 0)))
 
-            # Apply spectrogram augmentations
+            # Apply augmentations
             if self.augment:
+                # Time-stretch: random ±15% tempo change
+                rate = random.uniform(0.85, 1.15)
+                if abs(rate - 1.0) > 0.02:
+                    spec, frame_roll, onset_roll, art_roll = self._time_stretch_segment(
+                        spec, frame_roll, onset_roll, art_roll, rate
+                    )
+
+                # Pitch-shift augmentation: random ±3 semitones
+                shift = random.choice([-3, -2, -1, 0, 1, 2, 3])
+                if shift != 0:
+                    spec = self._shift_spec_pitch(spec, shift)
+                    frame_roll = self._shift_roll_pitch(frame_roll, shift)
+                    onset_roll = self._shift_roll_pitch(onset_roll, shift)
+                    art_roll = self._shift_roll_pitch(art_roll, shift)
                 spec = self._augment_spec(spec)
 
         # Convert to tensors
@@ -328,6 +354,44 @@ class GuitarSetDataset(Dataset):
         art_t = torch.from_numpy(art_roll)           # (T, NUM_CLASSES)
 
         return spec_t, frame_t, onset_t, art_t
+
+    # ---- Pitch-shift augmentation (CQT domain) ----
+
+    @staticmethod
+    def _shift_spec_pitch(spec: np.ndarray, semitones: int) -> np.ndarray:
+        """Shift CQT spectrogram by `semitones` half-steps (±2 max).
+
+        Each semitone = _BINS_PER_SEMITONE (2) CQT bins.  Positive = pitch up.
+        Vacated bins are filled with zero.
+        """
+        n_bins = spec.shape[0]
+        b = semitones * _BINS_PER_SEMITONE
+        shifted = np.zeros_like(spec)
+        if b > 0:
+            shifted[b:] = spec[:n_bins - b]
+        else:
+            shifted[:n_bins + b] = spec[-b:]
+        return shifted
+
+    @staticmethod
+    def _shift_roll_pitch(roll: np.ndarray, semitones: int) -> np.ndarray:
+        """Shift tablature roll fret indices by `semitones` (same-string transposition).
+
+        Notes that would fall outside frets [0, NUM_FRETS-1] are dropped.
+        roll shape: (T, NUM_CLASSES)
+        """
+        s = semitones
+        F = NUM_FRETS
+        new_roll = np.zeros_like(roll)
+        for st in range(NUM_STRINGS):
+            base = st * F
+            if s > 0:
+                # fret j → fret j+s; keep frets [0 .. F-s-1]
+                new_roll[:, base + s : base + F] = roll[:, base : base + F - s]
+            else:  # s < 0
+                # fret j → fret j+s; keep frets [-s .. F-1]
+                new_roll[:, base : base + F + s] = roll[:, base - s : base + F]
+        return new_roll
 
     # ---- Spectrogram augmentation ----
 
@@ -372,4 +436,65 @@ class GuitarSetDataset(Dataset):
             spec[:n_boost, :] *= boost_curve[:, np.newaxis]
             spec = np.clip(spec, 0.0, 1.0)
 
+        # 5. Room reverb simulation — exponentially decaying echo of past frames
+        if random.random() < 0.4:
+            decay = random.uniform(0.25, 0.55)
+            n_echo = random.randint(6, 24)
+            echo = np.zeros_like(spec)
+            for lag in range(1, n_echo + 1):
+                echo[:, lag:] += (decay ** lag) * spec[:, : T - lag]
+            spec = np.clip(spec + echo * 0.25, 0.0, 1.0)
+
+        # 6. Gaussian noise — simulates mic hiss and amp noise
+        if random.random() < 0.4:
+            noise_std = random.uniform(0.01, 0.04)
+            spec = np.clip(spec + np.random.randn(*spec.shape).astype(np.float32) * noise_std, 0.0, 1.0)
+
         return spec
+
+    # ---- Time-stretch augmentation (spectrogram domain) ----
+
+    @staticmethod
+    def _time_stretch_segment(
+        spec: np.ndarray,
+        frame_roll: np.ndarray,
+        onset_roll: np.ndarray,
+        art_roll: np.ndarray,
+        rate: float,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Stretch or compress a segment along the time axis via interpolation.
+
+        rate > 1 = faster playback (fewer frames), rate < 1 = slower (more frames).
+        All outputs are cropped/padded back to the original segment length.
+        """
+        T = spec.shape[1]
+        time_factor = 1.0 / rate
+
+        # Stretch spectrogram: (n_bins, T) — interpolate time axis only
+        spec_s = zoom(spec, (1.0, time_factor), order=1)
+
+        # Stretch rolls: (T, num_classes) — bilinear for frame/art, nearest for onset
+        frame_s = zoom(frame_roll, (time_factor, 1.0), order=1)
+        onset_s = zoom(onset_roll, (time_factor, 1.0), order=0)
+        art_s = zoom(art_roll, (time_factor, 1.0), order=1)
+
+        # Crop or pad back to T
+        T_new = spec_s.shape[1]
+        if T_new >= T:
+            spec_out = spec_s[:, :T]
+            frame_out = frame_s[:T]
+            onset_out = onset_s[:T]
+            art_out = art_s[:T]
+        else:
+            pad = T - T_new
+            spec_out = np.pad(spec_s, ((0, 0), (0, pad)))
+            frame_out = np.pad(frame_s, ((0, pad), (0, 0)))
+            onset_out = np.pad(onset_s, ((0, pad), (0, 0)))
+            art_out = np.pad(art_s, ((0, pad), (0, 0)))
+
+        # Binarise after interpolation to keep labels clean
+        frame_out = (frame_out > 0.5).astype(np.float32)
+        onset_out = (onset_out > 0.5).astype(np.float32)
+        art_out = (art_out > 0.5).astype(np.float32)
+
+        return spec_out, frame_out, onset_out, art_out

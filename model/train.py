@@ -25,7 +25,7 @@ from model.network import GuitarTranscriptionModel
 
 
 def collate_fn(batch):
-    """Stack variable-length items — training items are fixed-length segments."""
+    """Stack variable-length items -- training items are fixed-length segments."""
     mels, frames, onsets, arts = zip(*batch)
     return (
         torch.stack(mels),
@@ -179,6 +179,20 @@ def main():
         help="Path to AlignedDataset/ dir (from pipeline.run). "
              "Combined with other training data when set.",
     )
+    parser.add_argument(
+        "--start-best-f1", type=float, default=None,
+        help="Override the best-F1 threshold for checkpoint saving (default: from checkpoint, "
+             "or 0 when optimizer is reset). Use 0 to always save the first new best.",
+    )
+    parser.add_argument(
+        "--split", type=str, default="train",
+        choices=["train", "trainval"],
+        help=(
+            "Which GuitarSet players to train on.\n"
+            "  train    -- players 00-03 (default, player 04 = val)\n"
+            "  trainval -- players 00-04 (more data; test set used for model selection)"
+        ),
+    )
     args = parser.parse_args()
 
     # Device
@@ -193,10 +207,13 @@ def main():
 
     datasets_to_combine: list = []
 
+    train_split = args.split   # "train" (00-03) or "trainval" (00-04)
+    split_label = "players 00-03" if train_split == "train" else "players 00-04"
+
     if args.mixed and args.synth_root is not None:
-        print(f"Loading mixed training set (synthetic + real)...")
+        print(f"Loading mixed training set (synthetic + real, {split_label})...")
         synth_ds = GuitarSetDataset(root=args.synth_root, split="all", augment=True)
-        real_ds = GuitarSetDataset(root=args.root, split="train", augment=True)
+        real_ds = GuitarSetDataset(root=args.root, split=train_split, augment=True)
         datasets_to_combine.extend([synth_ds, real_ds])
         print(f"  Mixed training: {len(synth_ds)} synthetic + {len(real_ds)} real")
     elif args.synth_root is not None:
@@ -205,8 +222,8 @@ def main():
         datasets_to_combine.append(synth_ds)
         print(f"  {len(synth_ds)} synthetic training items")
     else:
-        print("Loading training set (GuitarSet — players 00-03)...")
-        real_ds = GuitarSetDataset(root=args.root, split="train", augment=True)
+        print(f"Loading training set (GuitarSet -- {split_label})...")
+        real_ds = GuitarSetDataset(root=args.root, split=train_split, augment=True)
         datasets_to_combine.append(real_ds)
         print(f"  {len(real_ds)} training items")
 
@@ -223,11 +240,14 @@ def main():
         train_ds = ConcatDataset(datasets_to_combine)
     print(f"  Total training items: {len(train_ds)}")
 
-    print("Loading validation set (GuitarSet — player 04)...")
-    val_ds = GuitarSetDataset(root=args.root, split="val")
+    # When trainval is used, player 04 is in the training set; use test (05) for model selection
+    val_split = "test" if train_split == "trainval" else "val"
+    val_label = "player 05 (test)" if train_split == "trainval" else "player 04"
+    print(f"Loading validation set (GuitarSet -- {val_label})...")
+    val_ds = GuitarSetDataset(root=args.root, split=val_split)
     print(f"  {len(val_ds)} validation items")
 
-    print("Loading test set (GuitarSet — player 05)...")
+    print("Loading test set (GuitarSet -- player 05)...")
     test_ds = GuitarSetDataset(root=args.root, split="test")
     print(f"  {len(test_ds)} test items")
 
@@ -265,8 +285,8 @@ def main():
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {total_params:,}")
 
-    # Positive-class weighting (notes are sparse → weight them higher)
-    # With 126 tablature classes (vs 49 pitches), targets are ~2.6× sparser.
+    # Positive-class weighting (notes are sparse -> weight them higher)
+    # With 126 tablature classes (vs 49 pitches), targets are ~2.6x sparser.
     pos_weight = torch.tensor([10.0]).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -288,10 +308,39 @@ def main():
     if args.resume is not None:
         print(f"Resuming from {args.resume} ...")
         ckpt = torch.load(args.resume, map_location=device, weights_only=False)
-        model.load_state_dict(ckpt["model_state_dict"])
-        optimizer.load_state_dict(ckpt["optimizer_state_dict"])
-        start_epoch = ckpt.get("epoch", 0) + 1
-        best_f1 = ckpt.get("f1", 0.0)
+        if isinstance(ckpt, dict) and "model_state_dict" in ckpt:
+            state = ckpt["model_state_dict"]
+            missing, unexpected = model.load_state_dict(state, strict=False)
+            if missing:
+                print(f"  New model keys (random init): {missing}")
+            if unexpected:
+                print(f"  Checkpoint keys not in model (ignored): {unexpected}")
+            opt_loaded = True
+            try:
+                optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+            except (ValueError, KeyError) as e:
+                print(f"  Optimizer state incompatible ({e}); starting optimizer fresh.")
+                opt_loaded = False
+            start_epoch = ckpt.get("epoch", 0) + 1
+            # Reset best_f1 to 0 when optimizer couldn't be restored — this means
+            # the model architecture or training split changed, so the old F1 score
+            # was measured under different conditions and isn't a valid comparison bar.
+            best_f1 = ckpt.get("f1", 0.0) if opt_loaded else 0.0
+        elif isinstance(ckpt, dict) and "model" in ckpt:
+            missing, _ = model.load_state_dict(ckpt["model"], strict=False)
+            if missing:
+                print(f"  New model keys (random init): {missing}")
+            start_epoch = ckpt.get("epoch", 0) + 1
+            best_f1 = ckpt.get("best_note_f1", 0.0)
+        else:
+            model.load_state_dict(ckpt, strict=False)
+            start_epoch = 1
+            best_f1 = 0.0
+
+        # CLI override for best-F1 bar
+        if args.start_best_f1 is not None:
+            best_f1 = args.start_best_f1
+            print(f"  best_f1 overridden to {best_f1:.4f} via --start-best-f1")
 
         # Apply the CLI --lr (overrides whatever the checkpoint had)
         for pg in optimizer.param_groups:
@@ -321,7 +370,7 @@ def main():
         eval_loader = None
         eval_label = "none"
 
-    print(f"\nTraining for epochs {start_epoch}–{args.epochs}\n{'='*60}")
+    print(f"\nTraining for epochs {start_epoch}-{args.epochs}\n{'='*60}")
 
     for epoch in range(start_epoch, args.epochs + 1):
         t0 = time.time()
@@ -350,7 +399,7 @@ def main():
             metric = val_stats["f1"] if eval_loader is not None else -train_stats["loss"]
             scheduler.step(metric)
 
-        # Save best — when no eval set, save based on lowest training loss
+        # Save best -- when no eval set, save based on lowest training loss
         save_best = False
         if eval_loader is not None:
             if val_stats["f1"] > best_f1:
@@ -373,7 +422,7 @@ def main():
             }
             torch.save(ckpt_data, ckpt_path)
             metric_name = "F1" if eval_loader is not None else "loss"
-            print(f"  ↑ New best {metric_name}={best_f1:.4f} — saved {ckpt_path}")
+            print(f"  ^ New best {metric_name}={best_f1:.4f} -- saved {ckpt_path}")
 
         # Save periodic checkpoint every 10 epochs
         if epoch % 10 == 0:

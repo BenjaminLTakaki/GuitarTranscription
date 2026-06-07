@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GuitarScribes · ML Pipeline</title>
+  <style>
+    :root {
+      --bg:        #07070f;
+      --surface:   #0f0f1e;
+      --surface2:  #181830;
+      --border:    #252545;
+      --text:      #e2e8f0;
+      --muted:     #64748b;
+      --amber:     #f59e0b;
+      --teal:      #14b8a6;
+      --purple:    #a78bfa;
+      --green:     #34d399;
+      --red:       #f87171;
+      --blue:      #60a5fa;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+      padding: 48px 24px 80px;
+    }
+
+    /* ── Header ── */
+    header {
+      text-align: center;
+      margin-bottom: 56px;
+    }
+    header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, var(--amber) 0%, var(--teal) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    header p {
+      color: var(--muted);
+      margin-top: 8px;
+      font-size: 0.85rem;
+      letter-spacing: 0.02em;
+    }
+
+    /* ── Layout ── */
+    .pipeline {
+      max-width: 860px;
+      margin: 0 auto;
+      position: relative;
+    }
+
+    /* ── Nodes ── */
+    .node {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 3px solid transparent;
+      border-radius: 12px;
+      padding: 18px 22px;
+      position: relative;
+      transition: border-color 0.18s, box-shadow 0.18s, transform 0.18s;
+      cursor: default;
+    }
+    .node:hover {
+      border-color: var(--amber);
+      box-shadow: 0 0 28px rgba(245,158,11,0.10);
+      transform: translateY(-1px);
+    }
+    .node.data-src    { border-left-color: var(--blue); }
+    .node.pseudo-src  { border-left-color: var(--purple); border-left-style: dashed; }
+    .node.preprocess  { border-left-color: var(--teal); }
+    .node.augment     { border-left-color: var(--purple); }
+    .node.model       { border-left-color: var(--amber); }
+    .node.training    { border-left-color: var(--green); }
+    .node.evaluation  { border-left-color: var(--teal); }
+    .node.postprocess { border-left-color: var(--red); }
+    .node.output      { border-left-color: var(--green); }
+    .node.pseudolabel { border-left-color: var(--purple); border-left-style: dashed; }
+
+    .step-tag {
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .node-title {
+      font-size: 1.05rem;
+      font-weight: 650;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .node-body {
+      font-size: 0.8rem;
+      color: #94a3b8;
+      line-height: 1.65;
+    }
+
+    /* ── Pills / badges ── */
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 100px;
+      font-size: 0.65rem;
+      font-weight: 600;
+    }
+    .pill-train     { background: rgba(52,211,153,0.15);  color: var(--green); }
+    .pill-infer     { background: rgba(245,158,11,0.15);  color: var(--amber); }
+    .pill-pseudo    { background: rgba(167,139,250,0.15); color: var(--purple); }
+    .pill-new       { background: rgba(96,165,250,0.15);  color: var(--blue); }
+
+    /* ── Two-column data sources ── */
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    /* ── Connector arrow ── */
+    .conn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      height: 38px;
+      justify-content: center;
+      position: relative;
+    }
+    .conn::before {
+      content: '';
+      width: 2px;
+      height: 28px;
+      background: var(--border);
+      display: block;
+    }
+    .conn::after {
+      content: '';
+      width: 0;
+      height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 7px solid var(--border);
+      display: block;
+      margin-top: -1px;
+    }
+
+    /* ── Converge arrow (two sources → one) ── */
+    .converge {
+      position: relative;
+      height: 48px;
+      margin: 0 0;
+    }
+    .converge svg {
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }
+
+    /* ── Sub-grid inside model node ── */
+    .arch-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .arch-block {
+      background: var(--surface2);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 0.77rem;
+      line-height: 1.5;
+      color: #94a3b8;
+    }
+    .arch-block h4 {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      color: var(--amber);
+      margin-bottom: 5px;
+    }
+    .arch-block.full { grid-column: 1 / -1; }
+
+    /* ── Output heads row ── */
+    .heads-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .head-block {
+      background: var(--surface2);
+      border-radius: 8px;
+      padding: 8px 10px;
+      text-align: center;
+      font-size: 0.73rem;
+      line-height: 1.4;
+      color: #94a3b8;
+    }
+    .head-block .head-name {
+      font-weight: 600;
+      font-size: 0.78rem;
+      color: var(--text);
+      display: block;
+      margin-bottom: 3px;
+    }
+
+    /* ── Augmentation tags ── */
+    .aug-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-top: 10px;
+    }
+    .aug-tag {
+      background: rgba(167,139,250,0.12);
+      border: 1px solid rgba(167,139,250,0.25);
+      color: var(--purple);
+      padding: 3px 9px;
+      border-radius: 100px;
+      font-size: 0.7rem;
+      font-weight: 500;
+    }
+
+    /* ── Eval metrics ── */
+    .metrics-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .metric-block {
+      background: var(--surface2);
+      border-radius: 8px;
+      padding: 10px;
+      text-align: center;
+    }
+    .metric-val {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: var(--teal);
+    }
+    .metric-lbl {
+      font-size: 0.6rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-top: 2px;
+    }
+
+    /* ── Post-process flow ── */
+    .postproc-flow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .pp-step {
+      background: var(--surface2);
+      border-radius: 7px;
+      padding: 6px 12px;
+      font-size: 0.75rem;
+      color: #94a3b8;
+      white-space: nowrap;
+    }
+    .pp-arrow { color: var(--muted); font-size: 0.9rem; }
+
+    /* ── Feedback / Pseudo-label fork ── */
+    .fork {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 16px;
+      margin-top: 0;
+      align-items: start;
+    }
+    .fork-center {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-top: 10px;
+      gap: 0;
+      color: var(--muted);
+      font-size: 0.7rem;
+    }
+
+    /* ── Feedback SVG arrow ── */
+    #feedback-svg {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      overflow: visible;
+    }
+
+    /* ── Section divider ── */
+    .divider {
+      text-align: center;
+      margin: 32px 0 20px;
+      position: relative;
+    }
+    .divider::before {
+      content: '';
+      position: absolute;
+      top: 50%; left: 0; right: 0;
+      height: 1px;
+      background: var(--border);
+    }
+    .divider span {
+      position: relative;
+      background: var(--bg);
+      padding: 0 16px;
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    /* ── Inference path (bottom) ── */
+    .inference-bar {
+      margin-top: 48px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-top: 2px solid var(--amber);
+      border-radius: 12px;
+      padding: 20px 24px;
+    }
+    .inference-bar h3 {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--amber);
+      margin-bottom: 14px;
+    }
+    .inf-flow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .inf-step {
+      background: var(--surface2);
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 0.78rem;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    .inf-arrow { color: var(--muted); }
+    .inf-step.hl { border: 1px solid rgba(245,158,11,0.3); color: var(--amber); }
+
+    /* ── Tooltip ── */
+    #tooltip {
+      position: fixed;
+      background: #1e1e3a;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 0.75rem;
+      color: var(--text);
+      max-width: 240px;
+      line-height: 1.55;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s;
+      z-index: 999;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+    #tooltip.show { opacity: 1; }
+
+    /* ── Flowing animation on connectors ── */
+    @keyframes dash {
+      to { stroke-dashoffset: -20; }
+    }
+    .animated-path {
+      stroke-dasharray: 6 4;
+      animation: dash 1.2s linear infinite;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>GuitarScribes · ML Pipeline</h1>
+  <p>CNN + BiGRU architecture &nbsp;·&nbsp; 6 strings × 21 frets &nbsp;·&nbsp; 126-class per-string transcription</p>
+</header>
+
+<div class="pipeline" id="pipeline">
+  <svg id="feedback-svg" aria-hidden="true"></svg>
+
+  <!-- ── 1. Data Sources ── -->
+  <div class="two-col">
+    <div class="node data-src" id="guitarset"
+         data-tip="GuitarSet: 360 clips from 6 players. Per-string JAMS annotations at 22050 Hz. Players 00–04 used for train; Player 05 held out for evaluation.">
+      <div class="step-tag">Primary dataset</div>
+      <div class="node-title">GuitarSet <span class="pill pill-train">Train</span></div>
+      <div class="node-body">
+        360 clips · 6 players<br>
+        Per-string JAMS annotations<br>
+        Players 00–04 → train<br>
+        Player 05 → test (held out)
+      </div>
+    </div>
+
+    <div class="node pseudo-src" id="musdb"
+         data-tip="MUSDB18HQ: 150 stereo tracks at 44100 Hz. Only the 'other' stem is used (bass/drums/vocals/mixture discarded). These have no ground-truth labels — they are pseudo-labeled by the model itself.">
+      <div class="step-tag">Unlabeled source <span class="pill pill-pseudo">Pseudo-label</span></div>
+      <div class="node-title">MUSDB18HQ</div>
+      <div class="node-body">
+        150 tracks · "other" stem only<br>
+        Bass / drums / vocals discarded<br>
+        No ground-truth labels<br>
+        Model-generated pseudo-labels
+      </div>
+    </div>
+  </div>
+
+  <!-- converge arrow -->
+  <div class="converge" id="converge-arrow">
+    <svg viewBox="0 0 860 48" preserveAspectRatio="none">
+      <line x1="215" y1="0" x2="430" y2="40" stroke="#252545" stroke-width="1.5"/>
+      <line x1="645" y1="0" x2="430" y2="40" stroke="#252545" stroke-width="1.5"/>
+      <polygon points="423,35 437,35 430,46" fill="#252545"/>
+    </svg>
+  </div>
+
+  <!-- ── 2. Preprocessing ── -->
+  <div class="node preprocess" id="preprocess"
+       data-tip="Constant-Q Transform (CQT): 144 bins, 2 bins/semitone, hop=512 samples at 22050 Hz → ~23ms per frame. Log-amplitude + per-sample normalization. Output: 144×T float32 tensor.">
+    <div class="step-tag">Step 1 · Preprocessing</div>
+    <div class="node-title">CQT Spectrogram</div>
+    <div class="node-body">
+      144 frequency bins &nbsp;·&nbsp; 2 bins / semitone<br>
+      Hop length: 512 samples (~23 ms / frame)<br>
+      Log amplitude &nbsp;+&nbsp; z-score normalization<br>
+      Output shape: <code style="color:var(--teal)">144 × T</code> float32 tensor
+    </div>
+  </div>
+
+  <div class="conn"></div>
+
+  <!-- ── 3. Augmentation ── -->
+  <div class="node augment" id="augment"
+       data-tip="Applied only during training. Each augmentation is applied independently with a probability, so clips may receive multiple simultaneous augmentations. The augmented spectrogram and labels are cropped/padded back to a fixed segment length.">
+    <div class="step-tag">Step 2 · Augmentation <span class="pill pill-train">Training only</span></div>
+    <div class="node-title">SpecAugment + Signal Augmentation</div>
+    <div class="aug-tags">
+      <span class="aug-tag">Pitch shift ±3 st</span>
+      <span class="aug-tag">Time stretch ±15%</span>
+      <span class="aug-tag">Gain ∈ [0.5, 1.5]</span>
+      <span class="aug-tag">Freq mask (10 bins)</span>
+      <span class="aug-tag">Time mask (20 frames)</span>
+      <span class="aug-tag">Reverb (5-step)</span>
+      <span class="aug-tag">Gaussian noise σ=0.01</span>
+    </div>
+  </div>
+
+  <div class="conn"></div>
+
+  <!-- ── 4. Model Architecture ── -->
+  <div class="node model" id="model"
+       data-tip="5.6M parameter model. CQT frames pass through convolutional blocks for local frequency patterns, then through bidirectional GRU for temporal context. Three independent heads decode different aspects of note activity.">
+    <div class="step-tag">Step 3 · Model</div>
+    <div class="node-title">CNN + BiGRU Transcription Model</div>
+    <div class="node-body">5.6M parameters &nbsp;·&nbsp; End-to-end differentiable</div>
+
+    <div class="arch-grid">
+      <div class="arch-block">
+        <h4>Convolutional Blocks × 3</h4>
+        32 → 64 → 128 channels<br>
+        3×3 conv + BN + ReLU<br>
+        2×1 freq pooling per block<br>
+        Effective receptive field: 7×7
+      </div>
+      <div class="arch-block">
+        <h4>BiGRU × 2</h4>
+        Hidden: 256 (bidirectional)<br>
+        Total hidden: 512 per frame<br>
+        Full sequence context<br>
+        Dropout: 0.3
+      </div>
+    </div>
+
+    <div style="margin-top:10px; font-size:0.7rem; color:var(--muted); font-weight:600; letter-spacing:0.06em; text-transform:uppercase;">Output heads (126-dim sigmoid each = 6 strings × 21 frets)</div>
+    <div class="heads-row">
+      <div class="head-block">
+        <span class="head-name">Frame</span>
+        Is note active?<br>
+        thr = 0.65
+      </div>
+      <div class="head-block">
+        <span class="head-name">Onset</span>
+        Did note start?<br>
+        thr = 0.75
+      </div>
+      <div class="head-block">
+        <span class="head-name">Articulation</span>
+        Hammer-on?<br>
+        (v2 addition)
+      </div>
+    </div>
+  </div>
+
+  <div class="conn"></div>
+
+  <!-- ── 5. Training ── -->
+  <div class="node training" id="training"
+       data-tip="Training uses Binary Cross-Entropy with positive weight 10 to address the severe class imbalance (most frames have no note active). Cosine annealing decays LR smoothly, avoiding abrupt drops that can destabilize training.">
+    <div class="step-tag">Step 4 · Training</div>
+    <div class="node-title">Training Configuration</div>
+    <div class="node-body">
+      Loss: BCE with pos_weight=10 (class imbalance correction)<br>
+      LR schedule: Cosine Annealing &nbsp;3×10⁻⁴ → 1×10⁻⁶<br>
+      Batch size: 8 &nbsp;·&nbsp; Segment: 500 frames (~11.5 s)<br>
+      Optimizer: Adam &nbsp;·&nbsp; Gradient clip: 1.0<br>
+      Best checkpoint saved by val F1 on Player 05
+    </div>
+  </div>
+
+  <div class="conn"></div>
+
+  <!-- ── 6. Evaluation ── -->
+  <div class="node evaluation" id="evaluation"
+       data-tip="Frame-level evaluation: a predicted note is correct if it matches the ground-truth string/fret at the same time frame. Threshold sweep finds the optimal onset and frame thresholds. v1 uses thr=0.50, v2 uses thr=0.65.">
+    <div class="step-tag">Step 5 · Evaluation</div>
+    <div class="node-title">Benchmark on Player 05 (held-out)</div>
+
+    <div class="metrics-row">
+      <div class="metric-block">
+        <div class="metric-val" style="color:var(--blue)">v1</div>
+        <div class="metric-lbl">epoch 539</div>
+      </div>
+      <div class="metric-block">
+        <div class="metric-val">0.696</div>
+        <div class="metric-lbl">Precision</div>
+      </div>
+      <div class="metric-block">
+        <div class="metric-val">0.789</div>
+        <div class="metric-lbl">Recall</div>
+      </div>
+      <div class="metric-block">
+        <div class="metric-val">0.737</div>
+        <div class="metric-lbl">F1</div>
+      </div>
+
+      <div class="metric-block">
+        <div class="metric-val" style="color:var(--amber)">v2</div>
+        <div class="metric-lbl">epoch 656</div>
+      </div>
+      <div class="metric-block">
+        <div class="metric-val">0.737</div>
+        <div class="metric-lbl">Precision</div>
+      </div>
+      <div class="metric-block">
+        <div class="metric-val">0.824</div>
+        <div class="metric-lbl">Recall</div>
+      </div>
+      <div class="metric-block">
+        <div class="metric-val" style="color:var(--teal)">0.776</div>
+        <div class="metric-lbl">F1 (best)</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="conn"></div>
+
+  <!-- ── 7. Post-processing ── -->
+  <div class="node postprocess" id="postprocess"
+       data-tip="The Schmitt trigger prevents flicker: a note can only start once the onset probability exceeds 0.75, and can only end once the frame probability drops below 0.10. This hysteresis removes short-duration noise spikes without affecting genuine note events.">
+    <div class="step-tag">Step 6 · Post-processing <span class="pill pill-infer">Inference</span></div>
+    <div class="node-title">Schmitt Trigger Decoding</div>
+    <div class="postproc-flow">
+      <div class="pp-step">Raw logits (126 × T)</div>
+      <div class="pp-arrow">→</div>
+      <div class="pp-step">Sigmoid probabilities</div>
+      <div class="pp-arrow">→</div>
+      <div class="pp-step">Onset threshold 0.75</div>
+      <div class="pp-arrow">→</div>
+      <div class="pp-step">Sustain threshold 0.10</div>
+      <div class="pp-arrow">→</div>
+      <div class="pp-step">Note events<br><span style="color:var(--muted);font-size:0.68rem">{string, fret, start, end, art}</span></div>
+    </div>
+  </div>
+
+  <div class="conn"></div>
+
+  <!-- ── 8. Outputs fork ── -->
+  <div class="two-col" style="gap:14px">
+    <div class="node output" id="output-midi"
+         data-tip="Standard MIDI file with per-string pitch mapping. Guitar strings E2-A2-D3-G3-B3-E4 tuned to MIDI 40-45-50-55-59-64. Each fret adds 1 semitone.">
+      <div class="step-tag">Output A</div>
+      <div class="node-title">MIDI File</div>
+      <div class="node-body">
+        Standard .mid export<br>
+        String → MIDI channel mapping<br>
+        Fret → pitch (MIDI 40–84)<br>
+        Hammer-ons preserved in velocity
+      </div>
+    </div>
+    <div class="node output" id="output-pseudo"
+         data-tip="When evaluated on unlabeled audio (e.g. MUSDB18HQ 'other' stems), high-confidence predictions (threshold 0.85) are saved as GuitarSet-compatible JAMS files and used as additional training data in the next training cycle.">
+      <div class="step-tag">Output B <span class="pill pill-pseudo">Pseudo-label loop</span></div>
+      <div class="node-title" id="pseudo-node">Pseudo-labels (JAMS)</div>
+      <div class="node-body">
+        Threshold: 0.85 (high precision)<br>
+        Min 10 notes required to accept<br>
+        Saved as GuitarSet-compatible JAMS<br>
+        Re-ingested as training data →
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Divider ── -->
+  <div class="divider"><span>Inference path (live transcription)</span></div>
+
+  <!-- ── Inference bar ── -->
+  <div class="inference-bar">
+    <h3>Live inference flow</h3>
+    <div class="inf-flow">
+      <div class="inf-step hl">Audio upload (.wav / .mp3)</div>
+      <div class="inf-arrow">→</div>
+      <div class="inf-step">CQT (144 bins)</div>
+      <div class="inf-arrow">→</div>
+      <div class="inf-step">CNN+BiGRU model</div>
+      <div class="inf-arrow">→</div>
+      <div class="inf-step">Schmitt trigger</div>
+      <div class="inf-arrow">→</div>
+      <div class="inf-step">Note events JSON</div>
+      <div class="inf-arrow">→</div>
+      <div class="inf-step hl">MIDI download</div>
+    </div>
+    <div style="margin-top:10px; font-size:0.72rem; color:var(--muted)">
+      Checkpoint selectable via frontend: <code style="color:var(--teal)">best_model_v1.pt</code> (F1=0.737) or <code style="color:var(--amber)">best_model_v2.pt</code> (F1=0.776)
+    </div>
+  </div>
+
+</div><!-- end .pipeline -->
+
+<div id="tooltip"></div>
+
+<script>
+  // ── Tooltip ──
+  const tooltip = document.getElementById('tooltip');
+  document.querySelectorAll('[data-tip]').forEach(el => {
+    el.addEventListener('mouseenter', e => {
+      tooltip.textContent = el.dataset.tip;
+      tooltip.classList.add('show');
+    });
+    el.addEventListener('mousemove', e => {
+      const x = e.clientX + 14;
+      const y = e.clientY + 14;
+      const tw = tooltip.offsetWidth;
+      const th = tooltip.offsetHeight;
+      tooltip.style.left = (x + tw > window.innerWidth ? e.clientX - tw - 14 : x) + 'px';
+      tooltip.style.top  = (y + th > window.innerHeight ? e.clientY - th - 14 : y) + 'px';
+    });
+    el.addEventListener('mouseleave', () => tooltip.classList.remove('show'));
+  });
+
+  // ── Feedback loop SVG arrow ──
+  function drawFeedback() {
+    const svg   = document.getElementById('feedback-svg');
+    const pipe  = document.getElementById('pipeline');
+    const pRect = pipe.getBoundingClientRect();
+
+    const fromEl = document.getElementById('output-pseudo');
+    const toEl   = document.getElementById('musdb');
+
+    const fRect = fromEl.getBoundingClientRect();
+    const tRect = toEl.getBoundingClientRect();
+
+    // Convert to pipeline-relative coords
+    const x1 = fRect.right  - pRect.left + 10;
+    const y1 = fRect.top    - pRect.top  + fRect.height / 2;
+    const x2 = tRect.right  - pRect.left + 10;
+    const y2 = tRect.top    - pRect.top  + tRect.height / 2;
+
+    const cx = Math.max(x1, x2) + 48;
+
+    svg.innerHTML = `
+      <defs>
+        <marker id="arrowhead" markerWidth="8" markerHeight="6"
+                refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#a78bfa" opacity="0.7"/>
+        </marker>
+      </defs>
+      <path d="M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}"
+            fill="none" stroke="#a78bfa" stroke-width="1.5"
+            stroke-dasharray="5 4" opacity="0.55"
+            marker-end="url(#arrowhead)"
+            class="animated-path"/>
+      <text x="${cx + 6}" y="${(y1 + y2) / 2}"
+            fill="#a78bfa" opacity="0.6" font-size="9"
+            font-family="-apple-system,sans-serif" font-weight="600"
+            letter-spacing="0.08em" dominant-baseline="middle"
+            transform="rotate(90,${cx + 6},${(y1 + y2) / 2})">
+        PSEUDO-LABEL LOOP
+      </text>
+    `;
+  }
+
+  // Draw after layout settles
+  setTimeout(drawFeedback, 120);
+  window.addEventListener('resize', drawFeedback);
+</script>
+</body>
+</html>

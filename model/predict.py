@@ -27,6 +27,7 @@ from model.constants import (
     class_to_string_fret,
 )
 from model.network import GuitarTranscriptionModel
+from model.pitch_gate import apply_pitch_gate
 
 
 def _detect_model_version(state_dict: dict) -> str:
@@ -84,7 +85,7 @@ def pianoroll_to_notes(
     frame_sec = HOP_LENGTH / SAMPLE_RATE
     notes: list[dict] = []
 
-    # Onset re-articulation threshold — a spike in onset_prob while a note is
+    # Onset re-articulation threshold -- a spike in onset_prob while a note is
     # already active forces the old note to close and a new one to open.
     onset_reattack_th = onset_threshold * 0.8
 
@@ -123,7 +124,7 @@ def pianoroll_to_notes(
                     in_note = True
                     start = t
             else:
-                # note is active — keep it alive while above sustain floor
+                # note is active -- keep it alive while above sustain floor
                 if prob < sustain_threshold:
                     in_note = False
                     if (t - start) >= min_duration_frames:
@@ -291,7 +292,19 @@ def predict(audio_path: Path, checkpoint_path: Path, device: torch.device):
     mel_t = torch.from_numpy(mel).unsqueeze(0).to(device)  # (1, n_bins, T)
 
     ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
-    version = _detect_model_version(ckpt["model_state_dict"])
+
+    # Support multiple checkpoint formats:
+    #   {"model_state_dict": ...}  -- current train.py format
+    #   {"model": ...}             -- older train.py format
+    #   bare state dict            -- torch.save(model.state_dict(), path)
+    if isinstance(ckpt, dict) and "model_state_dict" in ckpt:
+        state_dict = ckpt["model_state_dict"]
+    elif isinstance(ckpt, dict) and "model" in ckpt:
+        state_dict = ckpt["model"]
+    else:
+        state_dict = ckpt
+
+    version = _detect_model_version(state_dict)
     if version == "v2":
         from model.network_v2 import GuitarTranscriptionModelV2
         model = GuitarTranscriptionModelV2().to(device)
@@ -299,13 +312,13 @@ def predict(audio_path: Path, checkpoint_path: Path, device: torch.device):
         model = GuitarTranscriptionModel().to(device)
 
     # Detect missing/unexpected keys (e.g. articulation_head added after checkpoint was saved)
-    saved_keys = set(ckpt["model_state_dict"].keys())
+    saved_keys = set(state_dict.keys())
     model_keys = set(model.state_dict().keys())
     has_art = "articulation_head.0.weight" in saved_keys
     if saved_keys != model_keys:
-        model.load_state_dict(ckpt["model_state_dict"], strict=False)
+        model.load_state_dict(state_dict, strict=False)
     else:
-        model.load_state_dict(ckpt["model_state_dict"])
+        model.load_state_dict(state_dict)
     model.eval()
 
     outputs = model(mel_t)
@@ -336,6 +349,30 @@ def main():
     )
     parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
     parser.add_argument("--device", type=str, default="auto")
+    parser.add_argument(
+        "--pitch-backend", type=str, default="none",
+        choices=["none", "basic_pitch", "yourmt3", "mt3"],
+        help=(
+            "External pitch detector to fuse with the model output.\n"
+            "  none        -- model-only (default)\n"
+            "  basic_pitch -- Spotify basic-pitch (pip install basic-pitch)\n"
+            "  yourmt3     -- YourMT3+ local model (run third_party/setup_yourmt3.py first)\n"
+            "  mt3         -- any pre-computed MIDI file via --mt3-midi"
+        ),
+    )
+    parser.add_argument(
+        "--mt3-midi", type=Path, default=None,
+        help="Path to MT3's output MIDI file (required when --pitch-backend=mt3).",
+    )
+    parser.add_argument(
+        "--fusion-mode", type=str, default="soft",
+        choices=["soft", "rule"],
+        help=(
+            "How to combine model and pitch-detector outputs.\n"
+            "  soft -- geometric mean (recommended, no false positives tradeoff)\n"
+            "  rule -- hard mask (aggressive, zeros slots not confirmed by detector)"
+        ),
+    )
     args = parser.parse_args()
 
     if not args.audio_file.exists():
@@ -355,6 +392,27 @@ def main():
 
     frame_prob, onset_prob, art_prob = predict(args.audio_file, args.checkpoint, device)
 
+    # --- Optional pitch gate (MT3 / basic-pitch hybrid) -------------------
+    if args.pitch_backend != "none":
+        from model.mt3_wrapper import load_detector
+        n_frames = frame_prob.shape[0]
+
+        detector_kwargs: dict = {}
+        if args.pitch_backend == "mt3":
+            if args.mt3_midi is None:
+                raise ValueError("--mt3-midi is required when --pitch-backend=mt3")
+            detector_kwargs["midi_path"] = args.mt3_midi
+        elif args.pitch_backend == "yourmt3":
+            # Pass the same device choice so YourMT3 uses the GPU if available
+            detector_kwargs["device"] = args.device
+
+        print(f"Running pitch detector: {args.pitch_backend} ...")
+        detector    = load_detector(args.pitch_backend, **detector_kwargs)
+        pitch_probs = detector.predict(args.audio_file, n_frames)
+        frame_prob  = apply_pitch_gate(frame_prob, pitch_probs, mode=args.fusion_mode)
+        onset_prob  = apply_pitch_gate(onset_prob, pitch_probs, mode=args.fusion_mode)
+        print(f"Pitch gate applied ({args.fusion_mode} mode).")
+
     notes = pianoroll_to_notes(
         frame_prob,
         onset_prob,
@@ -369,7 +427,7 @@ def main():
     print(f"Detected {len(notes)} notes ({n_hammers} hammer-ons) across "
           f"{len(unique_pitches)} unique pitches, "
           f"{len(unique_positions)} unique (string, fret) positions")
-    print(f"Saved MIDI → {args.output}")
+    print(f"Saved MIDI -> {args.output}")
 
 
 if __name__ == "__main__":
